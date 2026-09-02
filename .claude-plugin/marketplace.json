@@ -1,0 +1,22 @@
+{
+  "name": "claude-handoff",
+  "metadata": {
+    "description": "Clean-context session handoff for Claude Code: capture the working state, open a fresh session that resumes it, keep the tab named after the topic."
+  },
+  "owner": {
+    "name": "Marcin Sufa",
+    "email": "sufa.marcin@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "handoff",
+      "description": "Hand off the current Claude Code session to a fresh-context session without losing state. Works in the terminal CLI and the Cursor/VS Code extension.",
+      "author": {
+        "name": "Marcin Sufa"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/MarcinSufa/claude-handoff"
+    }
+  ]
+}

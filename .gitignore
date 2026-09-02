@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.DS_Store
+
+# transient handoff working-state (skill-managed)
+.claude/handoff/
+
+# conductor working files
+.conduct/
