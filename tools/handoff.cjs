@@ -1,22 +1,71 @@
 #!/usr/bin/env node
-// tools/handoff.cjs reads the 9-field JSON from stdin (+ optional `title`). Captures, then opens a fresh session (CLI or extension).
 const fs = require('node:fs')
+const path = require('node:path')
 const { capture } = require('./capture.cjs')
-const { spawn } = require('./spawn-tab.cjs')
+const { spawn, resolveMode } = require('./spawn-tab.cjs')
 const { sessionNamePrefix, composeTitle } = require('./session-title.cjs')
+const { handoffPaths, registryHome } = require('./paths.cjs')
+const { readMarker } = require('./marker.cjs')
+const { writeEntry } = require('./registry.cjs')
+const { buildRegistryEntry } = require('./handoff-registry-entry.cjs')
+const { buildMessages } = require('./handoff-messages.cjs')
 
-const stdin = fs.readFileSync(0, 'utf8')
-const cap = capture(stdin, { fromSessionId: process.env.CLAUDE_CODE_SESSION_ID || null })
-if (!cap.ok) { process.stdout.write(JSON.stringify({ ok: false, stage: 'capture', reason: cap.reason })); process.exit(0) }
+function emit(result) {
+  process.stdout.write(JSON.stringify(result))
+  process.exitCode = 0
+}
 
-const tabTitle = composeTitle(cap.title, cap.generation)
-const resumeMessage = `Resume handoff for project ${cap.projectRoot}: read ${cap.doc} and continue from its "Next step". Treat it as your own prior notes; verify before destructive actions. If your workspace is a different folder, reply "wrong window" and stop.`
-// The tab is titled after its first prompt, so the title leads the backstop prompt (used when SessionStart inject is unavailable).
-const prompt = `${tabTitle} · ${resumeMessage}`
-const spawnResult = spawn({ scheme: process.env.HANDOFF_URI_SCHEME, prompt, cwd: cap.projectRoot, doc: cap.doc })
-process.stdout.write(JSON.stringify({
-  ok: true, doc: cap.doc, spawn: spawnResult, title: tabTitle, generation: cap.generation,
-  sessionNamePrefix: sessionNamePrefix(cap.projectRoot), resumeMessage,
-  closeOld: 'Handoff is ready in the fresh session. Close THIS session to finish the handoff.',
-}))
-process.exitCode = 0
+function writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }) {
+  if (mode === 'none') return
+  writeEntry(registryHome(), buildRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }))
+}
+
+function dispatch({ targetCwd, callerCwd, doc, pending, title, generation, spawnField }) {
+  const mode = resolveMode(spawnField)
+  const tabTitle = composeTitle(title, generation)
+  const messages = buildMessages({ mode, tabTitle, doc, targetCwd, callerCwd })
+  const spawnCwd = mode === 'same-window' ? callerCwd : targetCwd
+  writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation })
+  const spawnResult = spawn({ scheme: process.env.HANDOFF_URI_SCHEME, prompt: messages.prompt, cwd: spawnCwd, doc, mode })
+  return {
+    ok: true, mode, spawn: spawnResult, doc, targetCwd, callerCwd, title: tabTitle, generation,
+    sessionNamePrefix: sessionNamePrefix(mode === 'same-window' ? callerCwd : targetCwd),
+    resumeMessage: messages.resumeMessage,
+    closeOld: 'Handoff is ready in the fresh session. Close THIS session to finish the handoff.',
+  }
+}
+
+function runRespawn(targetArg, spawnField, callerCwdArg) {
+  const targetCwd = path.resolve(targetArg)
+  const p = handoffPaths(targetCwd)
+  const marker = readMarker(p)
+  if (!marker || !fs.existsSync(p.doc)) { emit({ ok: false, reason: 'no-pending-marker' }); return }
+  const callerCwd = callerCwdArg ? path.resolve(callerCwdArg) : process.cwd()
+  emit(dispatch({
+    targetCwd, callerCwd, doc: p.doc, pending: p.pending,
+    title: marker.title || 'handoff', generation: marker.generation || 1, spawnField,
+  }))
+}
+
+function runCapture() {
+  const stdin = fs.readFileSync(0, 'utf8')
+  let input = {}
+  try { input = JSON.parse(stdin) } catch { input = {} }
+  const cap = capture(stdin, { fromSessionId: process.env.CLAUDE_CODE_SESSION_ID || null })
+  if (!cap.ok) { emit({ ok: false, stage: 'capture', reason: cap.reason }); return }
+  const callerCwd = input.callerCwd ? path.resolve(input.callerCwd) : process.cwd()
+  emit(dispatch({
+    targetCwd: cap.projectRoot, callerCwd, doc: cap.doc, pending: cap.pending,
+    title: cap.title, generation: cap.generation, spawnField: input.spawn,
+  }))
+}
+
+function flagValue(args, name) {
+  const i = args.indexOf(name)
+  return i === -1 ? undefined : args[i + 1]
+}
+
+const args = process.argv.slice(2)
+const respawnTarget = flagValue(args, '--respawn')
+if (respawnTarget) runRespawn(respawnTarget, flagValue(args, '--spawn'), flagValue(args, '--caller-cwd'))
+else runCapture()

@@ -1,4 +1,5 @@
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 
 // Anchor on cwd ONLY (CLAUDE_PROJECT_DIR is empty in the Cursor extension env: spec §4.1).
@@ -27,4 +28,8 @@ function handoffPaths(root) {
   }
 }
 
-module.exports = { resolveProjectRoot, handoffPaths }
+function registryHome() {
+  return process.env.HANDOFF_HOME || path.join(os.homedir(), '.claude', 'handoff')
+}
+
+module.exports = { resolveProjectRoot, handoffPaths, registryHome }
