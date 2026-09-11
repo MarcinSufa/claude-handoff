@@ -108,6 +108,7 @@ function waitForegroundOpener(cwd) {
 function sleepMs(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }
 
 const FALLBACK = (doc) => `Handoff saved${doc ? ` at ${doc}` : ''}. Start a fresh \`claude\` in this directory (it will auto-resume), then close this session.`
+const TARGET_FALLBACK = (doc, targetCwd) => `Handoff saved${doc ? ` at ${doc}` : ''}. The registry entry could not be written, so cd into ${targetCwd} and start a fresh \`claude\` there, then close this session.`
 
 // Legacy env/field values collapse onto uri-target so old HANDOFF_SPAWN settings keep working.
 function resolveMode(mode) {
@@ -115,7 +116,7 @@ function resolveMode(mode) {
   return raw === 'auto' || raw === 'uri' ? 'uri-target' : raw
 }
 
-function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registryFailed }) {
+function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registryFailed, targetCwd }) {
   const o = openers || {
     focus: (c) => focusOpener(c),
     uri: (s, p) => uriOpener(buildUri(s, p)),
@@ -128,7 +129,10 @@ function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registry
   const delay = focusDelayMs == null ? (openers ? 0 : 3000) : focusDelayMs
   const fireUri = () => { o.uri(scheme || process.env.HANDOFF_URI_SCHEME || 'cursor', prompt) }
   const tryTerm = () => { o.terminal(dir); return { ok: true, mode: 'terminal' } }
-  const fb = () => ({ ok: false, mode: 'manual', message: FALLBACK(doc) })
+  const fb = () => ({
+    ok: false, mode: 'manual',
+    message: m === 'same-window' && registryFailed && targetCwd ? TARGET_FALLBACK(doc, targetCwd) : FALLBACK(doc),
+  })
 
   if (m === 'none') return fb()
 

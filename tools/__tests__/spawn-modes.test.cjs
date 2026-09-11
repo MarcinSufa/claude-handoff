@@ -81,6 +81,24 @@ test('same-window registry failure returns manual fallback without trying termin
   assert.deepEqual(normalCalls, ['uri', 'terminal'])
 })
 
+test('same-window registry failure tells the user to start claude in targetCwd', () => {
+  const result = spawn({
+    mode: 'same-window', registryFailed: true, cwd: '/caller', targetCwd: '/target',
+    doc: '/target/.claude/handoff/HANDOFF.md', openers: {
+      uri: () => { throw new Error() },
+      terminal: () => { throw new Error('unreached') },
+    },
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.mode, 'manual')
+  assert.match(result.message, /\/target/)
+  assert.match(result.message, /\/target\/\.claude\/handoff\/HANDOFF\.md/)
+  assert.ok(/\bcd\s+\/target\b.*\bclaude\b/i.test(result.message) || /\/target(?:\s|[`'\"]|$)[\s\S]*\bclaude\b/i.test(result.message))
+  assert.doesNotMatch(result.message, /auto-resume/i)
+  assert.doesNotMatch(result.message, /in this directory/i)
+})
+
 test('window mode opens the target window, waits for focus, then fires uri', () => {
   const calls = []
   const target = '/target'
