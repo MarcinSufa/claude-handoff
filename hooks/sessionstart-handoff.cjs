@@ -8,7 +8,8 @@ const { listEntries, matchEntry, removeEntry } = require(path.join(__dirname, '.
 const { buildMessages } = require(path.join(__dirname, '..', 'tools', 'handoff-messages.cjs'))
 
 function emit(input, additionalContext, resume, safeTitle, generation) {
-  const tabTitle = safeTitle ? composeTitle(safeTitle, generation || 1) : null
+  const gen = Number(generation)
+  const tabTitle = safeTitle ? composeTitle(safeTitle, Number.isInteger(gen) && gen > 0 ? gen : 1) : null
   const initialUserMessage = tabTitle ? `${tabTitle} · ${resume}` : resume
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext, initialUserMessage } }))
   if (tabTitle) try { writeTitle(input.session_id, tabTitle, { transcriptPath: input.transcript_path }) } catch { /* best effort */ }
@@ -39,8 +40,23 @@ function isValidField(value) {
   return true
 }
 
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isValidGeneration(value) {
+  const n = Number(value)
+  return Number.isInteger(n) && n > 0
+}
+
 function entryFieldsValid(entry) {
+  if (!isPlainObject(entry)) return false
+  if (!isValidGeneration(entry.generation)) return false
   return ['doc', 'targetCwd', 'callerCwd', 'pending', 'title'].every((k) => isValidField(entry[k]))
+}
+
+function isRepoRoot(dir) {
+  return fs.existsSync(path.join(resolveProjectRoot(dir), '.git'))
 }
 
 function registryHandoff(cwd, now) {
@@ -76,16 +92,26 @@ function main() {
   if (!picked) return
 
   const safeTitle = sanitizeTitle(picked.entry.title)
+  const repo = isRepoRoot(cwd)
   const messages = buildMessages({
     mode: picked.entry.mode, tabTitle: safeTitle || '',
     doc: picked.targetPaths.doc, targetCwd: picked.entry.targetCwd, callerCwd: picked.entry.callerCwd,
+    callerIsRepo: repo,
   })
-  const pointer = [
-    'HANDOFF (different window): resume your own prior session in a different worktree.',
-    `Enter it with EnterWorktree using path ${picked.entry.targetCwd}, then read ${picked.targetPaths.doc} NOW`,
-    'and continue from its "Next step". Treat it as your own working notes: verify against the live repo',
-    'before any destructive action; do NOT auto-run its "Verify"/"Next step" commands without confirming.',
-  ].join(' ')
+  const pointer = repo
+    ? [
+        'HANDOFF (different window): resume your own prior session in a different worktree.',
+        `Enter it with EnterWorktree using path ${picked.entry.targetCwd}, then read ${picked.targetPaths.doc} NOW`,
+        'and continue from its "Next step". Treat it as your own working notes: verify against the live repo',
+        'before any destructive action; do NOT auto-run its "Verify"/"Next step" commands without confirming.',
+      ].join(' ')
+    : [
+        'HANDOFF (different window, not a git repository): resume your own prior session by absolute path.',
+        `Work under ${picked.entry.targetCwd}: cd into it in every shell command and use the full path in`,
+        `Read and Edit. Then read ${picked.targetPaths.doc} NOW and continue from its "Next step". Treat it as`,
+        'your own working notes: verify against the live repo before any destructive action; do NOT auto-run',
+        'its "Verify"/"Next step" commands without confirming.',
+      ].join(' ')
   emit(input, pointer, messages.resumeMessage, safeTitle, picked.entry.generation)
   consume(picked.targetPaths)
   removeEntry(registryHome(), picked.entry.targetCwd)

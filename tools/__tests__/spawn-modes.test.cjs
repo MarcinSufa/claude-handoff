@@ -52,6 +52,35 @@ test('spawn field overrides HANDOFF_SPAWN', () => {
   }
 })
 
+test('same-window registry failure returns manual fallback without trying terminal', () => {
+  const calls = []
+  const result = spawn({
+    mode: 'same-window', registryFailed: true, doc: '/target/HANDOFF.md',
+    openers: {
+      uri: () => { calls.push('uri'); throw new Error('uri failed') },
+      terminal: () => { calls.push('terminal'); throw new Error('must not be called') },
+    },
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.mode, 'manual')
+  assert.match(result.message, /Handoff saved/)
+  assert.deepEqual(calls, ['uri'])
+
+  const normalCalls = []
+  const normalResult = spawn({
+    mode: 'same-window',
+    openers: {
+      uri: () => { normalCalls.push('uri'); throw new Error('uri failed') },
+      terminal: () => { normalCalls.push('terminal'); return true },
+    },
+  })
+
+  assert.equal(normalResult.ok, true)
+  assert.equal(normalResult.mode, 'terminal')
+  assert.deepEqual(normalCalls, ['uri', 'terminal'])
+})
+
 test('window mode opens the target window, waits for focus, then fires uri', () => {
   const calls = []
   const target = '/target'

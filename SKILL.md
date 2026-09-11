@@ -35,6 +35,8 @@ Resume is automatic: the fresh session's `SessionStart` hook injects a pointer a
 
 **Same-window is the default, so there is nothing to stay put for.** The URI fires immediately, with no focus step and no delay, so it lands in whichever window you were already talking to; the new session starts there (`callerCwd`), not in the target project. That is why its first message tells it to `EnterWorktree` (with `path`, never `name`) into the target root before reading `HANDOFF.md`, and why the "wrong window" check accepts either `callerCwd` or `targetCwd` as correct. Ask for `spawn:"window"` or `spawn:"terminal"` only when the user asks for a separate window or a terminal; a genuinely parallel handoff (two spawns within about 20 s) can still land in the wrong tab, since spawns are not queued.
 
+Same-window still works when the current window's folder is not a git repository (`EnterWorktree` needs one): the message instead tells the fresh session to work on absolute paths under the target root, `cd`-ing into it for every shell command instead of entering a worktree.
+
 **First-time setup:** none when installed as a plugin. The plugin install wires **both** hooks (the `SessionStart` resume hook and the `PostToolUse` auto-trigger) through `hooks/hooks.json`; restart Claude Code once after installing so they activate. Run `node "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/handoff}/tools/install.cjs"` only when you installed by copying this directory into `~/.claude/skills` and the hooks do not fire: it merges both hooks into `~/.claude/settings.json` (secret-safe, idempotent, preserves existing hooks), then restart Claude Code.
 
 ## Session naming

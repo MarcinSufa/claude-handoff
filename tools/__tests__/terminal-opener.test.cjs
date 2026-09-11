@@ -6,7 +6,7 @@ const path = require('node:path')
 const realExecFileSync = childProcess.execFileSync
 childProcess.execFileSync = () => '1234'
 
-const { spawn, terminalOpener } = require('../spawn-tab.cjs')
+const { spawn, terminalOpener, foregroundScript } = require('../spawn-tab.cjs')
 
 process.once('exit', () => {
   childProcess.execFileSync = realExecFileSync
@@ -75,6 +75,26 @@ test('HANDOFF_TERMINAL_EXE overrides the win32 terminal path', () => {
   assert.match(command, new RegExp(escapedForRegExp(override)))
 })
 
+test('terminal opener single-quotes the directory for PowerShell', () => {
+  const cwd = "C:\\tmp\\cost$env:USERNAME\\it's"
+  const calls = []
+
+  terminalOpener(cwd, {
+    exec: (...args) => {
+      calls.push(args)
+      return '1234'
+    },
+    platform: 'win32',
+    env: { HANDOFF_TERMINAL_EXE: 'C:\\Tools\\wt.exe' },
+    existsSync: () => true,
+  })
+
+  const command = commandFromCall(calls[0])
+  assert.ok(command)
+  assert.ok(command.includes("'C:\\tmp\\cost$env:USERNAME\\it''s'"))
+  assert.equal(command.includes(`"${cwd}"`), false)
+})
+
 test('terminal opener throws when PowerShell returns no numeric pid', () => {
   for (const output of ['', 'started']) {
     assert.throws(() => terminalOpener('C:\\work\\handoff', {
@@ -115,4 +135,29 @@ test('terminal spawn falls back to manual when the terminal opener throws', () =
 
   assert.equal(result.ok, false)
   assert.equal(result.mode, 'manual')
+})
+
+test('foregroundScript treats folder basenames as literals in PowerShell', () => {
+  const wildcardScript = foregroundScript('build[1]')
+  assert.ok(
+    wildcardScript.includes('[WildcardPattern]::Escape') ||
+      /\.(?:Contains|IndexOf)\(/.test(wildcardScript),
+  )
+  assert.doesNotMatch(wildcardScript, /-like\s+["']\*[^"']*\[1\][^"']*\*["']/)
+
+  const quotedScript = foregroundScript("builder's")
+  assert.match(quotedScript, /builder''s/)
+})
+
+test('foregroundScript never matches an empty basename and compares case-insensitively', () => {
+  const emptyScript = foregroundScript('')
+  const whileIndex = emptyScript.indexOf('while ')
+  const firstExitIndex = emptyScript.indexOf('exit 1')
+  assert.ok(firstExitIndex >= 0 && firstExitIndex < whileIndex)
+
+  const matchingScript = foregroundScript('Panel')
+  assert.match(
+    matchingScript,
+    /IndexOf\(\$target,\s*\[StringComparison\]::OrdinalIgnoreCase\)|ToLowerInvariant\(\)/,
+  )
 })

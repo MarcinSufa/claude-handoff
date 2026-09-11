@@ -4,7 +4,7 @@ const path = require('node:path')
 const { capture } = require('./capture.cjs')
 const { spawn, resolveMode } = require('./spawn-tab.cjs')
 const { sessionNamePrefix, composeTitle } = require('./session-title.cjs')
-const { handoffPaths, registryHome } = require('./paths.cjs')
+const { handoffPaths, registryHome, resolveProjectRoot } = require('./paths.cjs')
 const { readMarker } = require('./marker.cjs')
 const { writeEntry } = require('./registry.cjs')
 const { buildRegistryEntry } = require('./handoff-registry-entry.cjs')
@@ -15,20 +15,37 @@ function emit(result) {
   process.exitCode = 0
 }
 
+function callerIsRepo(callerCwd) {
+  return fs.existsSync(path.join(resolveProjectRoot(callerCwd), '.git'))
+}
+
+function toPositiveInt(value, fallback) {
+  const n = Number(value)
+  return Number.isInteger(n) && n > 0 ? n : fallback
+}
+
 function writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }) {
-  if (mode === 'none') return
-  writeEntry(registryHome(), buildRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }))
+  if (mode === 'none') return 'skipped'
+  try {
+    writeEntry(registryHome(), buildRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }))
+    return 'written'
+  } catch {
+    return 'failed'
+  }
 }
 
 function dispatch({ targetCwd, callerCwd, doc, pending, title, generation, spawnField }) {
   const mode = resolveMode(spawnField)
   const tabTitle = composeTitle(title, generation)
-  const messages = buildMessages({ mode, tabTitle, doc, targetCwd, callerCwd })
+  const messages = buildMessages({ mode, tabTitle, doc, targetCwd, callerCwd, callerIsRepo: callerIsRepo(callerCwd) })
   const spawnCwd = mode === 'same-window' ? callerCwd : targetCwd
-  writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation })
-  const spawnResult = spawn({ scheme: process.env.HANDOFF_URI_SCHEME, prompt: messages.prompt, cwd: spawnCwd, doc, mode })
+  const registryStatus = writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation })
+  const spawnResult = spawn({
+    scheme: process.env.HANDOFF_URI_SCHEME, prompt: messages.prompt, cwd: spawnCwd, doc, mode,
+    registryFailed: registryStatus === 'failed',
+  })
   return {
-    ok: true, mode, spawn: spawnResult, doc, targetCwd, callerCwd, title: tabTitle, generation,
+    ok: true, mode, registry: registryStatus, spawn: spawnResult, doc, targetCwd, callerCwd, title: tabTitle, generation,
     sessionNamePrefix: sessionNamePrefix(mode === 'same-window' ? callerCwd : targetCwd),
     resumeMessage: messages.resumeMessage,
     closeOld: 'Handoff is ready in the fresh session. Close THIS session to finish the handoff.',
@@ -43,7 +60,7 @@ function runRespawn(targetArg, spawnField, callerCwdArg) {
   const callerCwd = callerCwdArg ? path.resolve(callerCwdArg) : process.cwd()
   emit(dispatch({
     targetCwd, callerCwd, doc: p.doc, pending: p.pending,
-    title: marker.title || 'handoff', generation: marker.generation || 1, spawnField,
+    title: marker.title || 'handoff', generation: toPositiveInt(marker.generation, 1), spawnField,
   }))
 }
 
@@ -65,7 +82,20 @@ function flagValue(args, name) {
   return i === -1 ? undefined : args[i + 1]
 }
 
+function respawnTarget(args) {
+  const eq = args.find((a) => a.startsWith('--respawn='))
+  if (eq !== undefined) {
+    const value = eq.slice('--respawn='.length)
+    return value === '' ? null : value
+  }
+  const i = args.indexOf('--respawn')
+  if (i === -1) return undefined
+  const next = args[i + 1]
+  return next == null || next.startsWith('--') ? null : next
+}
+
 const args = process.argv.slice(2)
-const respawnTarget = flagValue(args, '--respawn')
-if (respawnTarget) runRespawn(respawnTarget, flagValue(args, '--spawn'), flagValue(args, '--caller-cwd'))
-else runCapture()
+const target = respawnTarget(args)
+if (target === undefined) runCapture()
+else if (target === null) emit({ ok: false, reason: 'missing-respawn-target' })
+else runRespawn(target, flagValue(args, '--spawn'), flagValue(args, '--caller-cwd'))

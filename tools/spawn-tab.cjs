@@ -51,7 +51,7 @@ function terminalOpener(cwd, deps) {
   const env = childEnv(d.env)
   if (d.platform === 'win32') {
     const exe = terminalExe(d)
-    const script = `Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList '-d',"${dir.replace(/"/g, '`"')}",'claude' -PassThru | Select-Object -ExpandProperty Id`
+    const script = `Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList '-d','${dir.replace(/'/g, "''")}','claude' -PassThru | Select-Object -ExpandProperty Id`
     const out = String(d.exec('powershell', ['-NoProfile', '-Command', script], { env })).replace(/^\ufeff/, '').trim()
     if (!/^\d+$/.test(out)) throw new Error('terminal spawn produced no pid')
     return true
@@ -65,11 +65,12 @@ function openWindowOpener(cwd) {
   execFileSync(editorExe(), ['-n', cwd], { env, stdio: 'ignore', timeout: 10000 })
   return true
 }
-// Polls the win32 foreground window title for the target folder's basename; no other platform exposes this cheaply.
-function waitForegroundOpener(cwd) {
-  if (process.platform !== 'win32') return true
-  const target = path.basename(cwd).replace(/'/g, "''")
-  const script = [
+// IndexOf(..., OrdinalIgnoreCase) matches the basename literally, case-insensitively (real window
+// titles case-differ from folder names); an empty basename (a drive root) would match ANY title, so
+// it exits 1 before the loop instead of reporting a false focus.
+function foregroundScript(basename) {
+  const target = String(basename).replace(/'/g, "''")
+  const lines = [
     'Add-Type @"',
     'using System; using System.Runtime.InteropServices; using System.Text;',
     'public class HandoffWin32 {',
@@ -78,17 +79,26 @@ function waitForegroundOpener(cwd) {
     '}',
     '"@',
     `$target = '${target}'`,
+  ]
+  if (!target) lines.push('exit 1')
+  lines.push(
     '$deadline = (Get-Date).AddSeconds(15)',
     'while ((Get-Date) -lt $deadline) {',
     '  $sb = New-Object System.Text.StringBuilder 256',
     '  [HandoffWin32]::GetWindowText([HandoffWin32]::GetForegroundWindow(), $sb, $sb.Capacity) | Out-Null',
-    '  if ($sb.ToString() -like "*$target*") { exit 0 }',
+    '  if ($sb.ToString().IndexOf($target, [StringComparison]::OrdinalIgnoreCase) -ge 0) { exit 0 }',
     '  Start-Sleep -Milliseconds 250',
     '}',
     'exit 1',
-  ].join('\n')
+  )
+  return lines.join('\n')
+}
+
+// Polls the win32 foreground window title for the target folder's basename; no other platform exposes this cheaply.
+function waitForegroundOpener(cwd) {
+  if (process.platform !== 'win32') return true
   try {
-    execFileSync('powershell', ['-NoProfile', '-Command', script], { env: childEnv(), timeout: 16000 })
+    execFileSync('powershell', ['-NoProfile', '-Command', foregroundScript(path.basename(cwd))], { env: childEnv(), timeout: 16000 })
     return true
   } catch {
     return false
@@ -105,7 +115,7 @@ function resolveMode(mode) {
   return raw === 'auto' || raw === 'uri' ? 'uri-target' : raw
 }
 
-function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs }) {
+function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registryFailed }) {
   const o = openers || {
     focus: (c) => focusOpener(c),
     uri: (s, p) => uriOpener(buildUri(s, p)),
@@ -124,7 +134,9 @@ function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs }) {
 
   if (m === 'same-window') {
     try { fireUri(); return { ok: true, mode: 'same-window' } } catch { /* fall through */ }
-    try { return tryTerm() } catch { /* fall through */ }
+    // A terminal fallback here opens in callerCwd, which has no local marker: without a registry
+    // entry the hook could never find it, so a failed registry write goes straight to manual instead.
+    if (!registryFailed) { try { return tryTerm() } catch { /* fall through */ } }
     return fb()
   }
 
@@ -158,5 +170,5 @@ function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs }) {
 const spawnTab = spawn // back-compat alias
 module.exports = {
   buildUri, childEnv, spawn, spawnTab, resolveMode,
-  uriOpener, focusOpener, terminalOpener, openWindowOpener, waitForegroundOpener,
+  uriOpener, focusOpener, terminalOpener, openWindowOpener, waitForegroundOpener, foregroundScript,
 }
