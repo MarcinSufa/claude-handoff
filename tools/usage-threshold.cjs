@@ -3,6 +3,8 @@
 
 const DEFAULT_AUTO = 90
 const DEFAULT_URGENT = 95
+const DEFAULT_CONTEXT_SAVE = 150000
+const DEFAULT_CONTEXT_URGENT = 180000
 const RANK = { none: 0, auto: 1, urgent: 2 }
 
 // Defensively read input.rate_limits.five_hour.used_percentage.
@@ -32,6 +34,13 @@ function resolveThresholds(env = process.env) {
   }
 }
 
+function resolveContextThresholds(env = process.env) {
+  return {
+    saveTokens: resolveOne(env.HANDOFF_CONTEXT_SAVE_TOKENS, DEFAULT_CONTEXT_SAVE),
+    urgentTokens: resolveOne(env.HANDOFF_CONTEXT_URGENT_TOKENS, DEFAULT_CONTEXT_URGENT),
+  }
+}
+
 // Decide which level the current percent has crossed and whether to fire (single-shot per session+level).
 // lastLevel = highest level already fired this session ('none' | 'auto' | 'urgent').
 function evaluate(percent, { autoPct, urgentPct, lastLevel } = {}) {
@@ -44,4 +53,7 @@ function evaluate(percent, { autoPct, urgentPct, lastLevel } = {}) {
   return { level, shouldFire, percent }
 }
 
-module.exports = { parsePercent, resolveThresholds, evaluate, DEFAULT_AUTO, DEFAULT_URGENT, RANK }
+module.exports = {
+  parsePercent, resolveThresholds, resolveContextThresholds, evaluate,
+  DEFAULT_AUTO, DEFAULT_URGENT, DEFAULT_CONTEXT_SAVE, DEFAULT_CONTEXT_URGENT, RANK,
+}

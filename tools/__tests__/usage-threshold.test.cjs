@@ -2,7 +2,25 @@
 // Pure logic for the PostToolUse rate-limit auto-trigger (spec §1 v2 leg, Option A).
 const { test } = require('node:test')
 const assert = require('node:assert')
-const { parsePercent, resolveThresholds, evaluate } = require('../usage-threshold.cjs')
+const { parsePercent, resolveThresholds, resolveContextThresholds, evaluate } = require('../usage-threshold.cjs')
+
+// ── resolveContextThresholds: env defaults 150k/180k tokens, "disabled" → null, invalid → default ──
+test('resolveContextThresholds defaults to 150000/180000 tokens', () => {
+  assert.deepEqual(resolveContextThresholds({}), { saveTokens: 150000, urgentTokens: 180000 })
+})
+test('resolveContextThresholds honors numeric overrides per level', () => {
+  assert.deepEqual(resolveContextThresholds({ HANDOFF_CONTEXT_SAVE_TOKENS: '100000' }), { saveTokens: 100000, urgentTokens: 180000 })
+  assert.deepEqual(resolveContextThresholds({ HANDOFF_CONTEXT_URGENT_TOKENS: '170000' }), { saveTokens: 150000, urgentTokens: 170000 })
+})
+test('resolveContextThresholds treats "disabled" as null and invalid input as default', () => {
+  assert.deepEqual(resolveContextThresholds({ HANDOFF_CONTEXT_SAVE_TOKENS: 'disabled', HANDOFF_CONTEXT_URGENT_TOKENS: 'DISABLED' }), { saveTokens: null, urgentTokens: null })
+  assert.deepEqual(resolveContextThresholds({ HANDOFF_CONTEXT_SAVE_TOKENS: 'abc' }), { saveTokens: 150000, urgentTokens: 180000 })
+})
+test('evaluate works unchanged on token counts with the context thresholds', () => {
+  const r = evaluate(155000, { autoPct: 150000, urgentPct: 180000, lastLevel: 'none' })
+  assert.equal(r.level, 'auto'); assert.equal(r.shouldFire, true)
+  assert.equal(evaluate(185000, { autoPct: 150000, urgentPct: 180000, lastLevel: 'auto' }).level, 'urgent')
+})
 
 // ── parsePercent: defensively read input.rate_limits.five_hour.used_percentage ──
 test('parsePercent reads a numeric five_hour.used_percentage', () => {

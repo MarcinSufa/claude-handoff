@@ -23,7 +23,6 @@ function handoffPaths(root) {
     doc: path.join(dir, 'HANDOFF.md'),
     pending: path.join(dir, 'handoff.pending.json'),
     consumed: path.join(dir, 'handoff.consumed.json'),
-    lastWarned: path.join(dir, '.last-warned.json'), // per-session debounce for the auto-trigger
     gitignore: path.join(r, '.gitignore'),
   }
 }
