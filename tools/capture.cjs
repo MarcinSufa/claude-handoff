@@ -65,6 +65,7 @@ function capture(stdin, opts = {}) {
     schema: 'handoff/v1', createdAt, fromSessionId: meta.fromSessionId, projectRoot: p.root,
     trigger: meta.trigger, doc: p.doc, nonce: createdAt + ':' + (process.hrtime.bigint() % 100000n).toString(),
     title, generation,
+    ...(opts.resumeMode === 'clear' ? { resumeMode: 'clear', sessionId: meta.fromSessionId || '' } : {}),
   })
   const gitignore = ensureGitignore(p)
   return { ok: true, doc: p.doc, pending: p.pending, projectRoot: p.root, title, generation, gitignore }

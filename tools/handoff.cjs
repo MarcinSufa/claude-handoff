@@ -25,7 +25,7 @@ function toPositiveInt(value, fallback) {
 }
 
 function writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }) {
-  if (mode === 'none') return 'skipped'
+  if (mode === 'none' || mode === 'clear') return 'skipped'
   try {
     writeEntry(registryHome(), buildRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }))
     return 'written'
@@ -37,6 +37,10 @@ function writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, g
 function dispatch({ targetCwd, callerCwd, doc, pending, title, generation, spawnField }) {
   const mode = resolveMode(spawnField)
   const tabTitle = composeTitle(title, generation)
+  if (mode === 'clear') {
+    const spawnResult = spawn({ mode, doc })
+    return { ok: true, mode, registry: 'skipped', spawn: spawnResult, doc, targetCwd, callerCwd, title: tabTitle, generation, message: spawnResult.message }
+  }
   const messages = buildMessages({ mode, tabTitle, doc, targetCwd, callerCwd, callerIsRepo: callerIsRepo(callerCwd) })
   const spawnCwd = mode === 'same-window' ? callerCwd : targetCwd
   const registryStatus = writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation })
@@ -68,7 +72,10 @@ function runCapture() {
   const stdin = fs.readFileSync(0, 'utf8')
   let input = {}
   try { input = JSON.parse(stdin) } catch { input = {} }
-  const cap = capture(stdin, { fromSessionId: process.env.CLAUDE_CODE_SESSION_ID || null })
+  const cap = capture(stdin, {
+    fromSessionId: process.env.CLAUDE_CODE_SESSION_ID || null,
+    resumeMode: resolveMode(input.spawn) === 'clear' ? 'clear' : undefined,
+  })
   if (!cap.ok) { emit({ ok: false, stage: 'capture', reason: cap.reason }); return }
   const callerCwd = input.callerCwd ? path.resolve(input.callerCwd) : process.cwd()
   emit(dispatch({
