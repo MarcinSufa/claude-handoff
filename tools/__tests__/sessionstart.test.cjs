@@ -1,7 +1,7 @@
 const { test } = require('node:test'); const assert = require('node:assert')
 const { execFileSync } = require('node:child_process')
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path')
-const { handoffPaths } = require('../paths.cjs'); const { writeMarker } = require('../marker.cjs')
+const { handoffPaths, autoHandoffPaths } = require('../paths.cjs'); const { writeMarker } = require('../marker.cjs')
 const HOOK = path.join(__dirname, '..', '..', 'hooks', 'sessionstart-handoff.cjs')
 
 function run(cwd, over = {}) {
@@ -101,6 +101,78 @@ test('a clear-mode marker for another session id is still consumed on clear (id 
   assert.notEqual(run(root, { source: 'clear', session_id: 'sid-6', transcript_path: transcript(root) }).trim(), '')
   assert.equal(fs.existsSync(p.pending), false)
 })
+// ── source=compact: baseline first, then the owned auto snapshot is re-seeded as authoritative ──
+function compactMarker(root, sessionId, extra = {}) {
+  const p = autoHandoffPaths(root, sessionId)
+  fs.mkdirSync(p.dir, { recursive: true }); fs.writeFileSync(p.doc, '# Handoff\n\n## Next step\nContinue')
+  writeMarker(p, { schema: 'handoff/v1', createdAt: new Date().toISOString(), doc: p.doc, nonce: 'n', title: 'ctx', generation: 1, resumeMode: 'compact', sessionId, clearEpoch: 0, tokensAtSave: 1000, ...extra })
+  return p
+}
+function baselineOf(root, sessionId) {
+  return JSON.parse(fs.readFileSync(path.join(root, '.claude', 'handoff', `.context-baseline.${sessionId}.json`), 'utf8'))
+}
+
+test('compact with an owned fresh marker → authoritative pointer to auto/<sid>/HANDOFF.md, first message, baseline epoch 1, marker consumed', () => {
+  const root = repo(); const p = compactMarker(root, 'sid-8')
+  const out = JSON.parse(run(root, { source: 'compact', session_id: 'sid-8', transcript_path: transcript(root, 'abc\n') })).hookSpecificOutput
+  assert.match(out.additionalContext, /authoritative/i)
+  assert.match(out.additionalContext, /summary/i)
+  assert.match(out.additionalContext, /auto[\\/]sid-8[\\/]HANDOFF\.md/)
+  assert.match(out.additionalContext, /continue/i)
+  assert.doesNotMatch(out.additionalContext, /confirm/i)
+  assert.doesNotMatch(out.additionalContext, /\/clear/)
+  assert.match(out.initialUserMessage, /auto[\\/]sid-8[\\/]HANDOFF\.md/)
+  assert.match(out.initialUserMessage, /next step/i)
+  assert.doesNotMatch(out.initialUserMessage, /confirm/i)
+  assert.equal(baselineOf(root, 'sid-8').clearEpoch, 1)
+  assert.equal(baselineOf(root, 'sid-8').offset, 4)
+  assert.equal(fs.existsSync(p.pending), false)
+  assert.ok(fs.existsSync(p.consumed))
+})
+test('startup_reason:compact without a source key behaves like source:compact', () => {
+  const root = repo(); const p = compactMarker(root, 'sid-9')
+  const input = { hook_event_name: 'SessionStart', startup_reason: 'compact', session_id: 'sid-9', cwd: root, transcript_path: transcript(root) }
+  const out = JSON.parse(execFileSync('node', [HOOK], { input: JSON.stringify(input), encoding: 'utf8' })).hookSpecificOutput
+  assert.match(out.additionalContext, /authoritative/i)
+  assert.equal(fs.existsSync(p.pending), false)
+})
+test('compact without a marker → silent, baseline still written and incremented', () => {
+  const root = repo()
+  const input = { source: 'compact', session_id: 'sid-10', transcript_path: transcript(root) }
+  assert.equal(run(root, input).trim(), '')
+  assert.equal(baselineOf(root, 'sid-10').clearEpoch, 1)
+  run(root, input)
+  assert.equal(baselineOf(root, 'sid-10').clearEpoch, 2)
+})
+test('compact with a marker owned by another session → silent, not consumed, baseline written', () => {
+  const root = repo(); const p = compactMarker(root, 'sid-11', { sessionId: 'someone-else' })
+  assert.equal(run(root, { source: 'compact', session_id: 'sid-11', transcript_path: transcript(root) }).trim(), '')
+  assert.ok(fs.existsSync(p.pending))
+  assert.equal(baselineOf(root, 'sid-11').clearEpoch, 1)
+})
+test('compact with a marker past its TTL → silent, not consumed', () => {
+  const root = repo(); const p = compactMarker(root, 'sid-12', { createdAt: new Date(Date.now() - 2 * 86400000).toISOString() })
+  assert.equal(run(root, { source: 'compact', session_id: 'sid-12', transcript_path: transcript(root) }).trim(), '')
+  assert.ok(fs.existsSync(p.pending))
+})
+test('compact never consumes a manual marker in .claude/handoff/, and two sessions only see their own snapshot', () => {
+  const root = repo(); const manual = marker(root)
+  compactMarker(root, 'sX'); const y = compactMarker(root, 'sY')
+  const out = JSON.parse(run(root, { source: 'compact', session_id: 'sX', transcript_path: transcript(root) })).hookSpecificOutput
+  assert.match(out.additionalContext, /auto[\\/]sX[\\/]HANDOFF\.md/)
+  assert.doesNotMatch(out.additionalContext, /auto[\\/]sY[\\/]HANDOFF\.md/)
+  assert.ok(fs.existsSync(manual.pending))
+  assert.ok(fs.existsSync(y.pending))
+})
+for (const source of ['startup', 'fork', 'resume', 'clear']) {
+  test(`compact marker on source=${source} → left pending`, () => {
+    const root = repo(); const p = compactMarker(root, 'sid-13')
+    run(root, { source, session_id: 'sid-13', transcript_path: transcript(root) })
+    assert.ok(fs.existsSync(p.pending))
+    assert.equal(fs.existsSync(p.consumed), false)
+  })
+}
+
 test('legacy marker (no resumeMode) still resumes on startup', () => {
   const root = repo(); const p = marker(root)
   assert.notEqual(run(root, { source: 'startup', session_id: 'sid-7' }).trim(), '')

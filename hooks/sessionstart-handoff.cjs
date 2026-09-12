@@ -7,6 +7,7 @@ const { writeTitle, composeTitle, sanitizeTitle } = require(path.join(__dirname,
 const { listEntries, matchEntry, removeEntry } = require(path.join(__dirname, '..', 'tools', 'registry.cjs'))
 const { buildMessages } = require(path.join(__dirname, '..', 'tools', 'handoff-messages.cjs'))
 const { writeBaseline } = require(path.join(__dirname, '..', 'tools', 'usage-flag.cjs'))
+const { readOwnedCompactMarker } = require(path.join(__dirname, '..', 'tools', 'compact-marker.cjs'))
 
 function emit(input, additionalContext, resume, safeTitle, generation) {
   const gen = Number(generation)
@@ -34,6 +35,23 @@ function localHandoff(root, source) {
     : `HANDOFF: resume your own prior session with a clean context. Read \`${rel}\` NOW, then continue from its "Next step". ${GUARDRAILS}`
   const resume = `Resume the active handoff for this workspace: read \`${rel}\` NOW and continue from its "Next step". This handoff is AUTHORITATIVE: prefer it over any recalled memory threads unless the handoff itself references them. Do NOT run its Verify/Next step commands without confirming first.`
   return { pointer, resume, safeTitle: sanitizeTitle(marker.title), generation: marker.generation }
+}
+
+// Auto-compact re-seed: the state document outranks the compaction summary, and the session keeps the
+// authorization it already had, so the pointer must not send the agent back to the user for a go-ahead.
+function compactHandoff(root, sessionId) {
+  const owned = readOwnedCompactMarker(root, sessionId)
+  if (!owned) return null
+  const rel = path.relative(root, owned.paths.doc) || owned.paths.doc
+  const pointer = [
+    'HANDOFF (auto-compact): the context was just compacted and the summary above is lossy.',
+    `\`${rel}\` is AUTHORITATIVE for your working state: read it NOW, then continue from its "Next step"`,
+    'within the authorization you already had; do not ask the user for a go-ahead to proceed with Next step.',
+    'This is your own saved state, not the manual handoff document .claude/handoff/HANDOFF.md (leave that one alone).',
+    'Any other injected context (e.g. memory) is background; anchor on the state document.',
+  ].join(' ')
+  const resume = `Continue from the saved state: read \`${rel}\` NOW (authoritative over the compaction summary) and proceed from its "Next step" without asking.`
+  return { pointer, resume, safeTitle: sanitizeTitle(owned.marker.title), generation: owned.marker.generation, paths: owned.paths }
 }
 
 function transcriptSize(transcriptPath) {
@@ -88,12 +106,21 @@ function main() {
   try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}') } catch { return }
   const cwd = input.cwd || process.cwd()
   const root = resolveProjectRoot(cwd)
-  if (input.source === 'clear') {
-    writeBaseline(handoffPaths(root), input.session_id || '', {
+  const source = input.startup_reason != null ? input.startup_reason : input.source
+  const sessionId = input.session_id || ''
+  if (source === 'clear' || source === 'compact') {
+    writeBaseline(handoffPaths(root), sessionId, {
       transcriptPath: input.transcript_path || '', offset: transcriptSize(input.transcript_path),
     })
   }
-  const local = localHandoff(root, input.source)
+  if (source === 'compact') {
+    const compact = compactHandoff(root, sessionId)
+    if (!compact) return
+    emit(input, compact.pointer, compact.resume, compact.safeTitle, compact.generation)
+    consume(compact.paths)
+    return
+  }
+  const local = localHandoff(root, source)
   if (local) {
     emit(input, local.pointer, local.resume, local.safeTitle, local.generation)
     consume(handoffPaths(root))
@@ -101,7 +128,7 @@ function main() {
     return
   }
 
-  if (input.source !== 'startup') return
+  if (source !== 'startup') return
   const picked = registryHandoff(cwd, Date.now())
   if (!picked) return
 
