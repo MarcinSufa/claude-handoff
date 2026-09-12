@@ -2,14 +2,16 @@
 // hooks/usage-monitor.cjs: PostToolUse auto-trigger. Two independent signals, each single-shot per
 // session, level and clear epoch: the 5-hour rate limit (rate_limits.five_hour.used_percentage) and the
 // context size (newest assistant usage line in transcript_path). A TRIPWIRE, not a capture: a
-// PostToolUse hook cannot author the 9-field state, so it nudges the agent to. Fail-open: never throw,
-// never block the tool.
+// PostToolUse hook cannot author the 9-field state, so it nudges the agent to. Every call also appends
+// the context reading to the context log. Fail-open: never throw, never block the tool.
 const fs = require('node:fs')
 const path = require('node:path')
 const { resolveProjectRoot, handoffPaths } = require(path.join(__dirname, '..', 'tools', 'paths.cjs'))
 const { parsePercent, resolveThresholds, resolveContextThresholds, evaluate } = require(path.join(__dirname, '..', 'tools', 'usage-threshold.cjs'))
-const { readWarnedLevel, markWarned, readBaseline } = require(path.join(__dirname, '..', 'tools', 'usage-flag.cjs'))
-const { readNewestUsage } = require(path.join(__dirname, '..', 'tools', 'transcript-tail.cjs'))
+const { readWarnedLevel, markWarned } = require(path.join(__dirname, '..', 'tools', 'usage-flag.cjs'))
+const { readContextState } = require(path.join(__dirname, '..', 'tools', 'context-state.cjs'))
+const { appendContextLog } = require(path.join(__dirname, '..', 'tools', 'context-log.cjs'))
+const { saveInstruction } = require(path.join(__dirname, '..', 'tools', 'compact-marker.cjs'))
 
 function rateLimitMessage(level, percent) {
   const pct = `${percent}%`
@@ -27,12 +29,8 @@ function rateLimitMessage(level, percent) {
   ].join(' ')
 }
 
-function contextMessage(level, tokens, thresholds) {
-  const save = [
-    'Run the /handoff skill with spawn "clear": author the 9-field working state and pipe it to',
-    'tools/handoff.cjs with "spawn":"clear", then ask the user to type /clear. The SessionStart hook',
-    'resumes you from .claude/handoff/HANDOFF.md in this same session. Do NOT run /compact.',
-  ].join(' ')
+function contextMessage(level, tokens, thresholds, sessionId) {
+  const save = saveInstruction({ sessionId, manualFallback: true })
   if (level === 'urgent') {
     return `🚨 URGENT: your context is at ${tokens} tokens (urgent threshold ${thresholds.urgentTokens}); auto-compaction is near. ${save} Do it NOW, before the next tool call.`
   }
@@ -50,18 +48,14 @@ function rateLimitSignal(input, p, sessionId, clearEpoch) {
   return rateLimitMessage(level, percent)
 }
 
-function contextSignal(input, p, sessionId, baseline) {
-  if (!input.transcript_path) return null
-  const clearEpoch = baseline ? baseline.clearEpoch : 0
-  const minOffset = baseline && baseline.transcriptPath === input.transcript_path ? baseline.offset : 0
-  const usage = readNewestUsage(input.transcript_path, { sessionId, minOffset })
+function contextSignal(p, sessionId, clearEpoch, usage) {
   if (!usage) return null
   const thresholds = resolveContextThresholds(process.env)
   const lastLevel = readWarnedLevel(p, sessionId, { signal: 'context', clearEpoch })
   const { level, shouldFire } = evaluate(usage.tokens, { autoPct: thresholds.saveTokens, urgentPct: thresholds.urgentTokens, lastLevel })
   if (!shouldFire) return null
   markWarned(p, sessionId, level, { signal: 'context', clearEpoch })
-  return contextMessage(level, usage.tokens, thresholds)
+  return contextMessage(level, usage.tokens, thresholds, sessionId)
 }
 
 function main() {
@@ -71,10 +65,16 @@ function main() {
   const root = resolveProjectRoot(input.cwd || process.cwd())
   const p = handoffPaths(root)
   const sessionId = input.session_id || ''
-  const baseline = readBaseline(p, sessionId)
+  const { clearEpoch, usage } = readContextState(p, sessionId, input.transcript_path)
+  if (usage) {
+    appendContextLog(p, {
+      sid: sessionId, epoch: clearEpoch, offset: usage.byteOffset, tokens: usage.tokens,
+      cacheRead: usage.cacheRead, cacheCreation: usage.cacheCreation, event: 'usage',
+    })
+  }
   const messages = [
-    rateLimitSignal(input, p, sessionId, baseline ? baseline.clearEpoch : 0),
-    contextSignal(input, p, sessionId, baseline),
+    rateLimitSignal(input, p, sessionId, clearEpoch),
+    contextSignal(p, sessionId, clearEpoch, usage),
   ].filter(Boolean)
   if (messages.length === 0) return
   process.stdout.write(JSON.stringify({

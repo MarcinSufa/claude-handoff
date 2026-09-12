@@ -79,15 +79,51 @@ test('context below the save threshold → silent', () => {
   const root = repo()
   assert.equal(run(ctxPay(root, transcript(root, [usageLine(140000, 's1')]))).trim(), '')
 })
-test('context at 155k → save nudge naming spawn clear, /clear and the token count', () => {
+test('context at 155k → save nudge naming spawn compact, the /clear fallback, and the token count', () => {
   const root = repo()
   const out = JSON.parse(run(ctxPay(root, transcript(root, [usageLine(155000, 's1')]))))
   assert.equal(out.hookSpecificOutput.hookEventName, 'PostToolUse')
   const text = out.hookSpecificOutput.additionalContext
+  assert.match(text, /"spawn":\s*"compact"/)
   assert.match(text, /spawn.*clear/i)
   assert.match(text, /\/clear/)
   assert.match(text, /155/)
   assert.match(text, /handoff\.cjs/)
+  assert.doesNotMatch(text, /Do NOT run \/compact/)
+})
+
+// ── context log: one NDJSON line per new usage offset, on every tool call ──
+function logLines(root) {
+  const file = path.join(root, '.claude', 'handoff', 'context-log.ndjson')
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l)) : []
+}
+test('every tool call appends the context reading once per transcript offset, even far below the thresholds', () => {
+  const root = repo()
+  const file = transcript(root, [JSON.stringify({ type: 'assistant', sessionId: 's1', message: { role: 'assistant', usage: { input_tokens: 100, cache_read_input_tokens: 9000, cache_creation_input_tokens: 900 } } })])
+  assert.equal(run(ctxPay(root, file)).trim(), '')
+  assert.equal(run(ctxPay(root, file)).trim(), '')
+  let lines = logLines(root)
+  assert.equal(lines.length, 1)
+  assert.deepEqual(Object.keys(lines[0]).sort(), ['cacheCreation', 'cacheRead', 'epoch', 'event', 'offset', 'sid', 'tokens', 'ts'])
+  assert.deepEqual({ sid: lines[0].sid, epoch: lines[0].epoch, tokens: lines[0].tokens, cacheRead: lines[0].cacheRead, cacheCreation: lines[0].cacheCreation, event: lines[0].event, offset: lines[0].offset },
+    { sid: 's1', epoch: 0, tokens: 10000, cacheRead: 9000, cacheCreation: 900, event: 'usage', offset: fs.statSync(file).size - 1 })
+  fs.appendFileSync(file, usageLine(11000, 's1') + '\n')
+  run(ctxPay(root, file))
+  lines = logLines(root)
+  assert.equal(lines.length, 2)
+  assert.equal(lines[1].tokens, 11000)
+})
+test('the context log records the current clear epoch and skips a transcript without usage', () => {
+  const root = repo()
+  const file = transcript(root, [usageLine(500, 's1')])
+  const { writeBaseline } = require('../usage-flag.cjs')
+  const { handoffPaths } = require('../paths.cjs')
+  writeBaseline(handoffPaths(root), 's1', { transcriptPath: 'other', offset: 0 })
+  run(ctxPay(root, file))
+  assert.equal(logLines(root)[0].epoch, 1)
+  const empty = repo()
+  run(ctxPay(empty, transcript(empty, [])))
+  assert.deepEqual(logLines(empty), [])
 })
 test('context nudge is single-shot per level, then escalates to urgent at 185k', () => {
   const root = repo()
