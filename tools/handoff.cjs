@@ -45,8 +45,8 @@ function dispatch({ targetCwd, callerCwd, doc, pending, title, generation, spawn
     registryFailed: registryStatus === 'failed',
   })
   return {
-    ok: true, mode, registry: registryStatus, spawn: spawnResult, doc, targetCwd, callerCwd, title: tabTitle, generation,
-    sessionNamePrefix: sessionNamePrefix(mode === 'same-window' ? callerCwd : targetCwd),
+    ok: true, mode, registry: registryStatus, spawn: spawnResult, doc, targetCwd, callerCwd, spawnCwd, title: tabTitle, generation,
+    sessionNamePrefix: sessionNamePrefix(spawnCwd),
     resumeMessage: messages.resumeMessage,
     closeOld: 'Handoff is ready in the fresh session. Close THIS session to finish the handoff.',
   }

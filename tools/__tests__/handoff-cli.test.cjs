@@ -290,3 +290,28 @@ test('respawn reports a failed registry write and still returns the spawn result
   assert.equal(normalOut.registry, 'written')
   assert.ok(normalOut.spawn)
 })
+
+// The terminal and window modes launch a process that only finds the handoff through the target's
+// local marker: launching in the caller's folder instead leaves the fresh session with nothing to resume.
+test('target-launching modes resolve the spawn directory to the target, same-window to the caller', () => {
+  const targetCwd = repo('ho-spawncwd-target-')
+  const callerCwd = repo('ho-spawncwd-caller-')
+  const p = handoffPaths(targetCwd)
+  fs.mkdirSync(p.dir, { recursive: true })
+  fs.writeFileSync(p.doc, '# Handoff')
+  writeMarker(p, {
+    schema: 'handoff/v1', createdAt: new Date().toISOString(), doc: p.doc,
+    nonce: 'spawncwd', title: 'panel verdicts', generation: 1,
+  })
+
+  // Every mode is resolved through the same branch, so the openerless modes pin it without
+  // launching a real editor or terminal: terminal falls back to manual on a missing exe, none never spawns.
+  for (const [mode, env] of [['terminal', { HANDOFF_TERMINAL_EXE: path.join(targetCwd, 'nonexistent-wt.exe') }], ['none', {}]]) {
+    const out = run(['--respawn', targetCwd, '--spawn', mode, '--caller-cwd', callerCwd], {
+      cwd: callerCwd, home: home(), env,
+    })
+    assert.strictEqual(out.spawnCwd, targetCwd, `${mode} must launch in the target`)
+    assert.strictEqual(out.sessionNamePrefix, path.basename(targetCwd).toLowerCase() + '-')
+    assert.notStrictEqual(out.spawnCwd, callerCwd)
+  }
+})

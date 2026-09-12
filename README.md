@@ -70,7 +70,7 @@ Spawn modes (input JSON field `spawn`, overrides `HANDOFF_SPAWN`):
 | --- | --- | --- | --- |
 | `same-window` | yes | caller window's folder (`callerCwd`) | Fires the URI immediately: no focus, no delay. Lands in whatever window the user is talking to. The first message tells the session to `EnterWorktree` into the target, then read the handoff. |
 | `window` | | target folder | Opens the target in a new editor window (`<editor> -n <targetCwd>`), waits for it to become the foreground window (poll, ~15 s timeout on Windows; fires the URI regardless and reports `focused: false` on timeout), then fires the URI. |
-| `terminal` | | target folder | Opens a new terminal running `claude` in the target. |
+| `terminal` | | target folder | Opens a new terminal running `claude` in the target (win32: `wt.exe -d <targetCwd> claude`, required to report a process id). |
 | `none` | | (nothing spawned) | Prints an instruction; no registry entry is written. |
 | `uri-target` | | last-focused editor window | Legacy behavior: focuses the target folder, waits, then fires the URI. `HANDOFF_SPAWN=auto` and `=uri` are old names that map onto this mode. |
 
@@ -82,7 +82,21 @@ Spawn modes (input JSON field `spawn`, overrides `HANDOFF_SPAWN`):
 | `HANDOFF_TERMINAL_EXE` | auto-detected (win32: `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe` when it exists, else `wt.exe`) | terminal binary used by `terminal` mode |
 | `HANDOFF_HOME` | `~/.claude/handoff` | root of the pending registry (`<HANDOFF_HOME>/pending/<sha1 of the target folder>.json`) that lets the resume hook find a same-window handoff's marker from the caller window |
 
+## Verified live
+
+Unit tests cover the openers; these runs cover the parts only a real desktop can show.
+
+| Mode | Date | Result |
+| --- | --- | --- |
+| `same-window` | 2026-09-11 | 3 of 3 handoffs landed in the calling window and resumed from the local marker. |
+| `window` | 2026-09-12 | 6 sequential handoffs from one window; each opened its own editor window on its own target folder and resumed there. |
+| `terminal` | 2026-09-12 | `wt.exe` opened with `claude` running and the workspace reported as `targetCwd`. The run stopped at Claude Code's folder-trust prompt, so the hook leg was not exercised in this mode. |
+
+The resume hook reads only the target's local marker and the pending registry, so it behaves the same whichever mode launched the session.
+
 ## Limits
+
+- **A target folder Claude Code does not already trust stops `terminal` mode at the trust prompt.** The terminal opens in the right folder and `claude` starts, then waits for a person to accept the folder before any session, and therefore any hook, begins. Handing off inside a project you already work in is unaffected; a brand new worktree needs that one answer.
 
 - **The old tab stays open.** No API closes the current session; you close it yourself after the handoff is ready.
 - **Two handoffs within about 20 seconds of each other can still land in the wrong tab.** Spawns are not queued, by design; if that happens, the next tab you open in the target project resumes the handoff from the pending marker regardless.
