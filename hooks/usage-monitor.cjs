@@ -1,21 +1,17 @@
 #!/usr/bin/env node
-// hooks/usage-monitor.cjs: PostToolUse rate-limit auto-trigger (spec §1 v2 leg, Option A).
-//
-// A deterministic TRIPWIRE, not a capture: a PostToolUse hook can inject additionalContext but cannot
-// author the 9-field state (that needs the agent): so when the 5-hour usage crosses a threshold this
-// nudges the agent to run /handoff. Enabled by default (90% / 95%); set HANDOFF_AUTO_SAVE_PERCENT or
-// HANDOFF_URGENT_PERCENT to a number to retune, or to "disabled" to turn a level off.
-//
-// Defensive: rate_limits.five_hour.used_percentage is documented for statusline stdin and claimed for
-// PostToolUse by prior art: where it is absent we no-op. Fail-open: never throw, never block the tool.
-// Single-shot per session+level via .last-warned.json so it does not re-nudge on every tool call.
+// hooks/usage-monitor.cjs: PostToolUse auto-trigger. Two independent signals, each single-shot per
+// session, level and clear epoch: the 5-hour rate limit (rate_limits.five_hour.used_percentage) and the
+// context size (newest assistant usage line in transcript_path). A TRIPWIRE, not a capture: a
+// PostToolUse hook cannot author the 9-field state, so it nudges the agent to. Fail-open: never throw,
+// never block the tool.
 const fs = require('node:fs')
 const path = require('node:path')
 const { resolveProjectRoot, handoffPaths } = require(path.join(__dirname, '..', 'tools', 'paths.cjs'))
-const { parsePercent, resolveThresholds, evaluate } = require(path.join(__dirname, '..', 'tools', 'usage-threshold.cjs'))
-const { readWarnedLevel, markWarned } = require(path.join(__dirname, '..', 'tools', 'usage-flag.cjs'))
+const { parsePercent, resolveThresholds, resolveContextThresholds, evaluate } = require(path.join(__dirname, '..', 'tools', 'usage-threshold.cjs'))
+const { readWarnedLevel, markWarned, readBaseline } = require(path.join(__dirname, '..', 'tools', 'usage-flag.cjs'))
+const { readNewestUsage } = require(path.join(__dirname, '..', 'tools', 'transcript-tail.cjs'))
 
-function message(level, percent) {
+function rateLimitMessage(level, percent) {
   const pct = `${percent}%`
   if (level === 'urgent') {
     return [
@@ -31,21 +27,58 @@ function message(level, percent) {
   ].join(' ')
 }
 
+function contextMessage(level, tokens, thresholds) {
+  const save = [
+    'Run the /handoff skill with spawn "clear": author the 9-field working state and pipe it to',
+    'tools/handoff.cjs with "spawn":"clear", then ask the user to type /clear. The SessionStart hook',
+    'resumes you from .claude/handoff/HANDOFF.md in this same session. Do NOT run /compact.',
+  ].join(' ')
+  if (level === 'urgent') {
+    return `🚨 URGENT: your context is at ${tokens} tokens (urgent threshold ${thresholds.urgentTokens}); auto-compaction is near. ${save} Do it NOW, before the next tool call.`
+  }
+  return `⚠️ Your context is at ${tokens} tokens (save threshold ${thresholds.saveTokens}). ${save} Finish the current step first if it is nearly done.`
+}
+
+function rateLimitSignal(input, p, sessionId, clearEpoch) {
+  const percent = parsePercent(input)
+  if (percent == null) return null
+  const { autoPct, urgentPct } = resolveThresholds(process.env)
+  const lastLevel = readWarnedLevel(p, sessionId, { signal: 'rateLimit', clearEpoch })
+  const { level, shouldFire } = evaluate(percent, { autoPct, urgentPct, lastLevel })
+  if (!shouldFire) return null
+  markWarned(p, sessionId, level, { signal: 'rateLimit', clearEpoch })
+  return rateLimitMessage(level, percent)
+}
+
+function contextSignal(input, p, sessionId, baseline) {
+  if (!input.transcript_path) return null
+  const clearEpoch = baseline ? baseline.clearEpoch : 0
+  const minOffset = baseline && baseline.transcriptPath === input.transcript_path ? baseline.offset : 0
+  const usage = readNewestUsage(input.transcript_path, { sessionId, minOffset })
+  if (!usage) return null
+  const thresholds = resolveContextThresholds(process.env)
+  const lastLevel = readWarnedLevel(p, sessionId, { signal: 'context', clearEpoch })
+  const { level, shouldFire } = evaluate(usage.tokens, { autoPct: thresholds.saveTokens, urgentPct: thresholds.urgentTokens, lastLevel })
+  if (!shouldFire) return null
+  markWarned(p, sessionId, level, { signal: 'context', clearEpoch })
+  return contextMessage(level, usage.tokens, thresholds)
+}
+
 function main() {
   let input = {}
-  try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}') } catch { return } // fail-open
-  const percent = parsePercent(input)
-  if (percent == null) return // no usage data → no-op (older CC / non-subscriber)
+  try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}') } catch { return }
+  if (!input || typeof input !== 'object') return
   const root = resolveProjectRoot(input.cwd || process.cwd())
   const p = handoffPaths(root)
   const sessionId = input.session_id || ''
-  const { autoPct, urgentPct } = resolveThresholds(process.env)
-  const lastLevel = readWarnedLevel(p, sessionId)
-  const { level, shouldFire } = evaluate(percent, { autoPct, urgentPct, lastLevel })
-  if (!shouldFire) return
-  markWarned(p, sessionId, level) // single-shot: do not re-nudge this level this session
+  const baseline = readBaseline(p, sessionId)
+  const messages = [
+    rateLimitSignal(input, p, sessionId, baseline ? baseline.clearEpoch : 0),
+    contextSignal(input, p, sessionId, baseline),
+  ].filter(Boolean)
+  if (messages.length === 0) return
   process.stdout.write(JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: message(level, percent) },
+    hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: messages.join('\n\n') },
   }))
 }
 
