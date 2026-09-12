@@ -72,6 +72,38 @@ test('spawn none reports mode and paths without writing a registry entry', () =>
   assert.equal(fs.existsSync(path.join(registryHome, 'pending')), false)
 })
 
+test('spawn clear writes doc + clear marker, no registry entry, no spawn, and asks for /clear', () => {
+  const cwd = repo(); const registryHome = home()
+  const out = run([], { cwd, home: registryHome, env: { CLAUDE_CODE_SESSION_ID: 'sX' }, input: payload({ spawn: 'clear', title: 'ctx test' }) })
+  assert.equal(out.ok, true)
+  assert.equal(out.mode, 'clear')
+  assert.equal(out.spawn.mode, 'clear')
+  assert.equal(out.registry, 'skipped')
+  assert.equal(out.closeOld, undefined)
+  const p = handoffPaths(cwd)
+  assert.equal(out.message, `State saved to ${p.doc}. Type /clear; I will continue from Next step.`)
+  assert.ok(fs.existsSync(p.doc))
+  const marker = JSON.parse(fs.readFileSync(p.pending, 'utf8'))
+  assert.equal(marker.resumeMode, 'clear')
+  assert.equal(marker.sessionId, 'sX')
+  assert.equal(fs.existsSync(path.join(registryHome, 'pending')), false)
+})
+
+test('spawn clear records an empty sessionId when CLAUDE_CODE_SESSION_ID is unset', () => {
+  const cwd = repo()
+  const env = { ...process.env }; delete env.CLAUDE_CODE_SESSION_ID
+  const out = JSON.parse(execFileSync('node', [HANDOFF], { cwd, env: { ...env, HANDOFF_HOME: home() }, input: JSON.stringify(payload({ spawn: 'clear' })), encoding: 'utf8' }))
+  assert.equal(out.spawn.mode, 'clear')
+  assert.equal(JSON.parse(fs.readFileSync(handoffPaths(cwd).pending, 'utf8')).sessionId, '')
+})
+
+test('other spawn modes write no resumeMode into the marker', () => {
+  const cwd = repo()
+  run([], { cwd, home: home(), env: { HANDOFF_SPAWN: 'none' }, input: payload({ spawn: 'none' }) })
+  const marker = JSON.parse(fs.readFileSync(handoffPaths(cwd).pending, 'utf8'))
+  assert.equal(marker.resumeMode, undefined)
+})
+
 test('same-window message helper names the absolute handoff and target and leads with the tab title', () => {
   const { buildMessages } = require('../handoff-messages.cjs')
   const messages = buildMessages({

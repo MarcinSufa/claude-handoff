@@ -134,6 +134,19 @@ test('terminal mode calls the terminal opener and returns terminal mode', () => 
   assert.deepEqual(calls, ['/p'])
 })
 
+test('clear mode never calls openers and tells the user to type /clear', () => {
+  const r = spawn({ mode: 'clear', prompt: 'hi', cwd: '/p', doc: '/p/.claude/handoff/HANDOFF.md', openers: {
+    focus: () => { throw new Error('unreached') },
+    uri: () => { throw new Error('unreached') },
+    terminal: () => { throw new Error('unreached') },
+  } })
+  assert.equal(r.ok, true)
+  assert.equal(r.mode, 'clear')
+  assert.match(r.message, /State saved to \/p\/\.claude\/handoff\/HANDOFF\.md\. Type \/clear; I will continue from Next step\./)
+  assert.doesNotMatch(r.message, /close (this|the old)/i)
+  assert.doesNotMatch(r.message, /start (a )?fresh/i)
+})
+
 test('none mode uses the fallback and never calls openers', () => {
   const r = spawn({ mode: 'none', prompt: 'hi', cwd: '/p', openers: {
     focus: () => { throw new Error('unreached') },
