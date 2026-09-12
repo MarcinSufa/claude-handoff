@@ -5,8 +5,10 @@ function usageOf(line, sessionId) {
   if (sessionId && entry.sessionId != null && entry.sessionId !== sessionId) return null
   const usage = entry.message && entry.message.usage
   if (!usage || typeof usage !== 'object') return null
-  const tokens = Number(usage.input_tokens || 0) + Number(usage.cache_creation_input_tokens || 0) + Number(usage.cache_read_input_tokens || 0)
-  return Number.isFinite(tokens) ? tokens : null
+  const cacheRead = Number(usage.cache_read_input_tokens || 0)
+  const cacheCreation = Number(usage.cache_creation_input_tokens || 0)
+  const tokens = Number(usage.input_tokens || 0) + cacheCreation + cacheRead
+  return Number.isFinite(tokens) ? { tokens, cacheRead, cacheCreation } : null
 }
 
 // byteOffset points just past the matching line's content, so a line appended after a baseline
@@ -17,8 +19,8 @@ function parseContextTokens(text, { sessionId, baseOffset = 0 } = {}) {
   let newest = null
   for (const line of lines) {
     const end = offset + Buffer.byteLength(line)
-    const tokens = usageOf(line, sessionId)
-    if (tokens != null) newest = { tokens, byteOffset: end }
+    const usage = usageOf(line, sessionId)
+    if (usage) newest = { ...usage, byteOffset: end }
     offset = end + 1
   }
   return newest

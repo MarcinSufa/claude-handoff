@@ -1,14 +1,11 @@
-// tools/usage-flag.cjs: per-session state for the PostToolUse auto-trigger.
+// tools/usage-flag.cjs: per-session state for the hooks.
 // .last-warned.<sid>.json holds the highest level already fired per signal (rateLimit, context) for the
-// current clear epoch; .context-baseline.<sid>.json is written on SessionStart(source=clear) and tells
-// the monitor which transcript bytes predate the clear. Never throws.
+// current clear epoch; .context-baseline.<sid>.json is written on SessionStart(source=clear|compact) and
+// tells the monitor which transcript bytes predate the reset; .<kind>-deny.<sid>.json counts the
+// Stop/PreCompact refusals of the current epoch so a guard can never strand a session. Never throws.
 const fs = require('node:fs')
 const path = require('node:path')
-
-function sanitizeSessionId(sessionId) {
-  const safe = String(sessionId == null ? '' : sessionId).replace(/[^A-Za-z0-9._-]/g, '_')
-  return safe || 'unknown'
-}
+const { sanitizeSessionId } = require('./paths.cjs')
 
 function flagFile(p, sessionId) {
   return path.join(p.dir, `.last-warned.${sanitizeSessionId(sessionId)}.json`)
@@ -16,6 +13,10 @@ function flagFile(p, sessionId) {
 
 function baselineFile(p, sessionId) {
   return path.join(p.dir, `.context-baseline.${sanitizeSessionId(sessionId)}.json`)
+}
+
+function denyFile(p, sessionId, kind) {
+  return path.join(p.dir, `.${kind}-deny.${sanitizeSessionId(sessionId)}.json`)
 }
 
 function readJson(file) {
@@ -62,4 +63,23 @@ function writeBaseline(p, sessionId, { transcriptPath, offset }) {
   return baseline
 }
 
-module.exports = { sanitizeSessionId, flagFile, baselineFile, readWarnedLevel, markWarned, readBaseline, writeBaseline }
+// True when this refusal is still within the cap for (session, kind, epoch); the count restarts on a new
+// epoch or once the last refusal is older than floorMs. Any write failure counts as "cap reached" so a
+// broken state directory can never produce unbounded blocking.
+function claimDenial(p, sessionId, { kind, clearEpoch = 0, cap = 2, floorMs = 45000, now = Date.now() } = {}) {
+  const file = denyFile(p, sessionId, kind)
+  const parsed = readJson(file)
+  const current = parsed && parsed.sessionId === sessionId && parsed.clearEpoch === clearEpoch &&
+    Number.isInteger(parsed.count) && Number.isFinite(parsed.lastAt) && now - parsed.lastAt <= floorMs
+    ? parsed
+    : { sessionId, clearEpoch, count: 0, lastAt: now }
+  if (current.count >= cap) return false
+  try {
+    writeJsonAtomic(p, file, { ...current, count: current.count + 1, lastAt: now })
+    return true
+  } catch {
+    return false
+  }
+}
+
+module.exports = { sanitizeSessionId, flagFile, baselineFile, denyFile, readWarnedLevel, markWarned, readBaseline, writeBaseline, claimDenial }

@@ -21,6 +21,14 @@ test('sums input + both cache fields of the newest assistant line, excluding out
   })
   const parsed = parseContextTokens([usageLine(5), line].join('\n'), { sessionId: 's1' })
   assert.equal(parsed.tokens, 134050)
+  assert.equal(parsed.cacheRead, 132901)
+  assert.equal(parsed.cacheCreation, 1117)
+})
+
+test('missing cache fields read as 0', () => {
+  const line = JSON.stringify({ type: 'assistant', sessionId: 's1', message: { role: 'assistant', usage: { input_tokens: 9 } } })
+  const parsed = parseContextTokens(line, { sessionId: 's1' })
+  assert.deepEqual({ tokens: parsed.tokens, cacheRead: parsed.cacheRead, cacheCreation: parsed.cacheCreation }, { tokens: 9, cacheRead: 0, cacheCreation: 0 })
 })
 
 test('byteOffset is the byte position just past the matching line', () => {

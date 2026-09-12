@@ -14,21 +14,34 @@ function resolveProjectRoot(startDir) {
   }
 }
 
-function handoffPaths(root) {
-  const r = root || resolveProjectRoot()
-  const dir = path.join(r, '.claude', 'handoff')
+function sanitizeSessionId(sessionId) {
+  const safe = String(sessionId == null ? '' : sessionId).replace(/[^A-Za-z0-9._-]/g, '_')
+  return safe || 'unknown'
+}
+
+function pathSet(root, dir) {
   return {
-    root: r,
+    root,
     dir,
     doc: path.join(dir, 'HANDOFF.md'),
     pending: path.join(dir, 'handoff.pending.json'),
     consumed: path.join(dir, 'handoff.consumed.json'),
-    gitignore: path.join(r, '.gitignore'),
+    gitignore: path.join(root, '.gitignore'),
   }
+}
+
+function handoffPaths(root) {
+  const r = root || resolveProjectRoot()
+  return pathSet(r, path.join(r, '.claude', 'handoff'))
+}
+
+function autoHandoffPaths(root, sessionId) {
+  const r = root || resolveProjectRoot()
+  return pathSet(r, path.join(r, '.claude', 'handoff', 'auto', sanitizeSessionId(sessionId)))
 }
 
 function registryHome() {
   return process.env.HANDOFF_HOME || path.join(os.homedir(), '.claude', 'handoff')
 }
 
-module.exports = { resolveProjectRoot, handoffPaths, registryHome }
+module.exports = { resolveProjectRoot, handoffPaths, autoHandoffPaths, sanitizeSessionId, registryHome }
