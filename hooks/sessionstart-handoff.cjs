@@ -6,6 +6,7 @@ const { readMarker, consume, TTL_MS } = require(path.join(__dirname, '..', 'tool
 const { writeTitle, composeTitle, sanitizeTitle } = require(path.join(__dirname, '..', 'tools', 'session-title.cjs'))
 const { listEntries, matchEntry, removeEntry } = require(path.join(__dirname, '..', 'tools', 'registry.cjs'))
 const { buildMessages } = require(path.join(__dirname, '..', 'tools', 'handoff-messages.cjs'))
+const { writeBaseline } = require(path.join(__dirname, '..', 'tools', 'usage-flag.cjs'))
 
 function emit(input, additionalContext, resume, safeTitle, generation) {
   const gen = Number(generation)
@@ -15,20 +16,28 @@ function emit(input, additionalContext, resume, safeTitle, generation) {
   if (tabTitle) try { writeTitle(input.session_id, tabTitle, { transcriptPath: input.transcript_path }) } catch { /* best effort */ }
 }
 
-function localHandoff(root) {
+const GUARDRAILS = [
+  'Treat it as your own working notes: verify against the live repo before any destructive action;',
+  'do NOT auto-run its "Verify"/"Next step" commands without confirming. This is your working-state',
+  'handoff; any other injected context (e.g. memory) is background; anchor on the handoff.',
+].join(' ')
+
+function localHandoff(root, source) {
   const p = handoffPaths(root)
   const marker = readMarker(p)
   if (!marker || !fs.existsSync(p.doc)) return null
+  const clearMode = marker.resumeMode === 'clear'
+  if (clearMode && source !== 'clear') return null
   const rel = path.relative(root, p.doc) || p.doc
-  const pointer = [
-    'HANDOFF: resume your own prior session with a clean context.',
-    `Read \`${rel}\` NOW, then continue from its "Next step".`,
-    'Treat it as your own working notes: verify against the live repo before any destructive action;',
-    'do NOT auto-run its "Verify"/"Next step" commands without confirming. This is your working-state',
-    'handoff; any other injected context (e.g. memory) is background; anchor on the handoff.',
-  ].join(' ')
+  const pointer = clearMode
+    ? `HANDOFF: this is the same session, its context was cleared on purpose. Read \`${rel}\` NOW, then continue your own work from its "Next step". ${GUARDRAILS}`
+    : `HANDOFF: resume your own prior session with a clean context. Read \`${rel}\` NOW, then continue from its "Next step". ${GUARDRAILS}`
   const resume = `Resume the active handoff for this workspace: read \`${rel}\` NOW and continue from its "Next step". This handoff is AUTHORITATIVE: prefer it over any recalled memory threads unless the handoff itself references them. Do NOT run its Verify/Next step commands without confirming first.`
   return { pointer, resume, safeTitle: sanitizeTitle(marker.title), generation: marker.generation }
+}
+
+function transcriptSize(transcriptPath) {
+  try { return fs.statSync(transcriptPath).size } catch { return 0 }
 }
 
 function isValidField(value) {
@@ -79,7 +88,12 @@ function main() {
   try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}') } catch { return }
   const cwd = input.cwd || process.cwd()
   const root = resolveProjectRoot(cwd)
-  const local = localHandoff(root)
+  if (input.source === 'clear') {
+    writeBaseline(handoffPaths(root), input.session_id || '', {
+      transcriptPath: input.transcript_path || '', offset: transcriptSize(input.transcript_path),
+    })
+  }
+  const local = localHandoff(root, input.source)
   if (local) {
     emit(input, local.pointer, local.resume, local.safeTitle, local.generation)
     consume(handoffPaths(root))
