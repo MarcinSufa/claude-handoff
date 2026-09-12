@@ -5,7 +5,7 @@ const { test } = require('node:test')
 const assert = require('node:assert')
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path')
 const { handoffPaths } = require('../paths.cjs')
-const { readWarnedLevel, markWarned, flagFile, readBaseline, writeBaseline, baselineFile, sanitizeSessionId } = require('../usage-flag.cjs')
+const { readWarnedLevel, markWarned, flagFile, readBaseline, writeBaseline, baselineFile, sanitizeSessionId, claimDenial, denyFile } = require('../usage-flag.cjs')
 
 function paths() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ho-flag-')))
@@ -84,6 +84,37 @@ test('baseline: none until written; writeBaseline increments clearEpoch and reco
   assert.equal(readBaseline(p, 's1').offset, 456)
   assert.equal(readBaseline(p, 's2'), null)
   assert.equal(path.basename(baselineFile(p, 's1')), '.context-baseline.s1.json')
+})
+
+// ── denial counter: cap N per session, kind and clear epoch, reset after the time floor ──
+test('claimDenial grants the cap, then refuses, in a file named per kind and sanitized session id', () => {
+  const p = paths()
+  const opts = { kind: 'stop', clearEpoch: 0, cap: 2, floorMs: 45000, now: 1000 }
+  assert.equal(claimDenial(p, 'unsafe/s', opts), true)
+  assert.equal(claimDenial(p, 'unsafe/s', { ...opts, now: 2000 }), true)
+  assert.equal(claimDenial(p, 'unsafe/s', { ...opts, now: 3000 }), false)
+  assert.equal(path.basename(denyFile(p, 'unsafe/s', 'stop')), '.stop-deny.unsafe_s.json')
+  assert.ok(fs.existsSync(denyFile(p, 'unsafe/s', 'stop')))
+  assert.equal(JSON.parse(fs.readFileSync(denyFile(p, 'unsafe/s', 'stop'), 'utf8')).count, 2)
+})
+test('claimDenial counts per kind, per session and per clear epoch', () => {
+  const p = paths()
+  const opts = { kind: 'stop', clearEpoch: 0, cap: 1, floorMs: 45000, now: 1000 }
+  assert.equal(claimDenial(p, 's1', opts), true)
+  assert.equal(claimDenial(p, 's1', opts), false)
+  assert.equal(claimDenial(p, 's1', { ...opts, kind: 'compact' }), true)
+  assert.equal(claimDenial(p, 's2', opts), true)
+  assert.equal(claimDenial(p, 's1', { ...opts, clearEpoch: 1 }), true)
+  assert.equal(claimDenial(p, 's1', { ...opts, clearEpoch: 1 }), false)
+})
+test('claimDenial resets once the last denial is older than the floor, and a corrupt file counts as empty', () => {
+  const p = paths()
+  const opts = { kind: 'stop', clearEpoch: 0, cap: 1, floorMs: 45000, now: 1000 }
+  assert.equal(claimDenial(p, 's1', opts), true)
+  assert.equal(claimDenial(p, 's1', { ...opts, now: 46000 }), false)
+  assert.equal(claimDenial(p, 's1', { ...opts, now: 46001 }), true)
+  fs.writeFileSync(denyFile(p, 's1', 'stop'), '{not json')
+  assert.equal(claimDenial(p, 's1', opts), true)
 })
 
 test('corrupt baseline → null, and the next write restarts at epoch 1', () => {
