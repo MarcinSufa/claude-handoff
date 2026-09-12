@@ -1,6 +1,6 @@
 const { test } = require('node:test'); const assert = require('node:assert')
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path')
-const { handoffPaths } = require('../paths.cjs')
+const { handoffPaths, autoHandoffPaths } = require('../paths.cjs')
 const { readMarker } = require('../marker.cjs')
 const { capture } = require('../capture.cjs')
 
@@ -13,6 +13,20 @@ test('writes HANDOFF.md + pending marker and returns ok', () => {
   assert.equal(r.ok, true)
   assert.ok(fs.existsSync(p.doc)); assert.ok(fs.existsSync(p.pending))
   assert.equal(readMarker(p).fromSessionId, 'sid')
+})
+test('resumeMode compact writes under auto/<sid>/ with epoch, session and tokensAtSave in the marker', () => {
+  const root = repo(); const p = autoHandoffPaths(root, 'sid')
+  const r = capture(JSON.stringify(good), { root, fromSessionId: 'sid', resumeMode: 'compact', tokensAtSave: 120000 })
+  assert.equal(r.ok, true)
+  assert.equal(r.doc, p.doc)
+  assert.equal(r.pending, p.pending)
+  assert.ok(fs.existsSync(p.doc))
+  const marker = readMarker(p)
+  assert.equal(marker.resumeMode, 'compact')
+  assert.equal(marker.sessionId, 'sid')
+  assert.equal(marker.clearEpoch, 0)
+  assert.equal(marker.tokensAtSave, 120000)
+  assert.equal(fs.existsSync(handoffPaths(root).pending), false)
 })
 test('rejects malformed stdin JSON', () => {
   const root = repo()

@@ -1,7 +1,8 @@
 const fs = require('node:fs')
 const path = require('node:path')
-const { handoffPaths } = require('./paths.cjs')
+const { handoffPaths, autoHandoffPaths } = require('./paths.cjs')
 const { writeMarker } = require('./marker.cjs')
+const { readBaseline } = require('./usage-flag.cjs')
 const { redact } = require('./redact.cjs')
 const { toMarkdown, parseDoc, FIELDS } = require('./handoff-format.cjs')
 const memory = require('./memory.cjs')
@@ -32,6 +33,13 @@ function ensureGitignore(p) {
   }
 }
 
+function resumeFields(resumeMode, sessionId, base, tokensAtSave) {
+  if (resumeMode === 'clear') return { resumeMode, sessionId }
+  if (resumeMode !== 'compact') return {}
+  const baseline = readBaseline(base, sessionId)
+  return { resumeMode, sessionId, clearEpoch: baseline ? baseline.clearEpoch : 0, tokensAtSave: Number(tokensAtSave) || 0 }
+}
+
 function capture(stdin, opts = {}) {
   let fields
   try { fields = JSON.parse(stdin) } catch { return { ok: false, reason: 'invalid-json' } }
@@ -45,7 +53,9 @@ function capture(stdin, opts = {}) {
     const v = fields[f]
     clean[f] = Array.isArray(v) ? v.map((x) => redact(String(x))) : redact(String(v == null ? '' : v))
   }
-  const p = handoffPaths(opts.root)
+  const base = handoffPaths(opts.root)
+  const sessionId = opts.fromSessionId || ''
+  const p = opts.resumeMode === 'compact' ? autoHandoffPaths(base.root, sessionId) : base
   const prev = previousMeta(p.doc)
   const generation = (Number(prev.generation) || 0) + 1
   const title = redact(String(fields.title == null ? '' : fields.title)).trim() || prev.title || defaultTitle(clean.goal)
@@ -65,7 +75,7 @@ function capture(stdin, opts = {}) {
     schema: 'handoff/v1', createdAt, fromSessionId: meta.fromSessionId, projectRoot: p.root,
     trigger: meta.trigger, doc: p.doc, nonce: createdAt + ':' + (process.hrtime.bigint() % 100000n).toString(),
     title, generation,
-    ...(opts.resumeMode === 'clear' ? { resumeMode: 'clear', sessionId: meta.fromSessionId || '' } : {}),
+    ...resumeFields(opts.resumeMode, sessionId, base, opts.tokensAtSave),
   })
   const gitignore = ensureGitignore(p)
   return { ok: true, doc: p.doc, pending: p.pending, projectRoot: p.root, title, generation, gitignore }
