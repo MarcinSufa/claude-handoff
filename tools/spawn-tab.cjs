@@ -110,6 +110,7 @@ function sleepMs(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBu
 const FALLBACK = (doc) => `Handoff saved${doc ? ` at ${doc}` : ''}. Start a fresh \`claude\` in this directory (it will auto-resume), then close this session.`
 const TARGET_FALLBACK = (doc, targetCwd) => `Handoff saved${doc ? ` at ${doc}` : ''}. The registry entry could not be written, so cd into ${targetCwd} and start a fresh \`claude\` there, then close this session.`
 const CLEAR_MESSAGE = (doc) => `State saved to ${doc}. Type /clear; I will continue from Next step.`
+const COMPACT_MESSAGE = (doc) => `State saved to ${doc}. Compaction will reset the context; continue.`
 
 // Legacy env/field values collapse onto uri-target so old HANDOFF_SPAWN settings keep working.
 function resolveMode(mode) {
@@ -137,6 +138,7 @@ function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registry
 
   if (m === 'none') return fb()
   if (m === 'clear') return { ok: true, mode: 'clear', message: CLEAR_MESSAGE(doc) }
+  if (m === 'compact') return { ok: true, mode: 'compact', message: COMPACT_MESSAGE(doc) }
 
   if (m === 'same-window') {
     try { fireUri(); return { ok: true, mode: 'same-window' } } catch { /* fall through */ }
