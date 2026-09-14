@@ -10,9 +10,9 @@ Native `/compact` summarizes detail away and keeps the same polluted session. `/
 
 ## How it works
 
-1. **Capture.** The agent authors nine fields (goal, specifics, state, next step, constraints, gotchas, open questions, keep-on-fail facts, verify commands) plus a short title. Secrets are redacted, then `tools/handoff.cjs` writes `.claude/handoff/HANDOFF.md` and an atomic single-shot marker next to it.
-2. **Spawn.** In `auto` mode the glue first focuses the project window and opens the editor URI (`cursor://anthropic.claude-code/open`, scheme via `HANDOFF_URI_SCHEME`); if that throws it opens a new terminal running `claude`; if both fail it prints an instruction. Terminal users should set `HANDOFF_SPAWN=terminal`, because a URI open can report success without an editor present.
-3. **Resume.** The fresh session's `SessionStart` hook finds the pending marker for that cwd, injects a pointer to `HANDOFF.md`, auto-sends the first message and consumes the marker. Sessions without a marker are untouched and the hook never re-fires.
+1. **Capture.** The agent authors nine fields (goal, specifics, state, next step, constraints, gotchas, open questions, keep-on-fail facts, verify commands) plus a short title. Secrets are redacted, then `tools/handoff.cjs` writes `.claude/handoff/HANDOFF.md` and an atomic single-shot marker next to it, in the TARGET project.
+2. **Spawn.** Default mode `same-window` fires the editor URI (`cursor://anthropic.claude-code/open`, scheme via `HANDOFF_URI_SCHEME`) immediately, no window focus, no delay, so it lands in whichever window the user is already talking to; the new session starts there and is told to `EnterWorktree` into the target before reading the handoff (or, when the current window's folder is not a git repository, to work on absolute paths under the target root instead). `window` opens the target in a new editor window and waits (poll, up to ~15 s on Windows) for it to become the foreground window before firing the URI. `terminal` opens a new terminal running `claude` in the target. `uri-target` keeps the old focus-then-URI behavior. `none` just prints an instruction. Every mode but `none` also writes an entry to the pending registry (`~/.claude/handoff/pending/`) so the resume hook can find the marker from whichever window the new session actually starts in.
+3. **Resume.** The fresh session's `SessionStart` hook first checks for a local pending marker at its own cwd; if there isn't one, it looks itself up in the registry by cwd. Either way it injects a pointer to `HANDOFF.md`, auto-sends the first message and consumes the marker. Sessions without a marker or a matching registry entry are untouched and the hook never re-fires.
 4. **Wake.** The old session locates the fresh one by its name prefix, sends it the resume message, and tells you to close the old tab.
 5. **Name.** The new tab is titled `<topic> #<n>`, where `n` is a generation counter bumped from the previous handoff in that project.
 
@@ -64,22 +64,45 @@ Enabled by default. The `PostToolUse` hook reads `rate_limits.five_hour.used_per
 
 It is a tripwire, not a capture: a `PostToolUse` hook cannot author the working state, so it asks the agent to run `/handoff`. Where `rate_limits` is absent from the payload (older Claude Code, non Pro/Max plans) the hook silently no-ops. It never blocks a tool call.
 
-Spawn knobs:
+Spawn modes (input JSON field `spawn`, overrides `HANDOFF_SPAWN`):
+
+| Mode | Default | New session starts in | Behavior |
+| --- | --- | --- | --- |
+| `same-window` | yes | caller window's folder (`callerCwd`) | Fires the URI immediately: no focus, no delay. Lands in whatever window the user is talking to. The first message tells the session to `EnterWorktree` into the target, then read the handoff. |
+| `window` | | target folder | Opens the target in a new editor window (`<editor> -n <targetCwd>`), waits for it to become the foreground window (poll, ~15 s timeout on Windows; fires the URI regardless and reports `focused: false` on timeout), then fires the URI. |
+| `terminal` | | target folder | Opens a new terminal running `claude` in the target (win32: `wt.exe -d <targetCwd> claude`, required to report a process id). |
+| `none` | | (nothing spawned) | Prints an instruction; no registry entry is written. |
+| `uri-target` | | last-focused editor window | Legacy behavior: focuses the target folder, waits, then fires the URI. `HANDOFF_SPAWN=auto` and `=uri` are old names that map onto this mode. |
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `HANDOFF_SPAWN` | `auto` | `auto`, `uri` (extension only), `terminal` (CLI only) or `none` (print the instruction) |
+| `HANDOFF_SPAWN` | `same-window` | see the modes table above |
 | `HANDOFF_URI_SCHEME` | `cursor` | URI scheme used to open the extension (`vscode` for VS Code) |
-| `HANDOFF_EDITOR_EXE` | auto-detected | editor binary used to focus the project window before the URI is dispatched |
+| `HANDOFF_EDITOR_EXE` | auto-detected | editor binary used to focus or open the project window |
+| `HANDOFF_TERMINAL_EXE` | auto-detected (win32: `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe` when it exists, else `wt.exe`) | terminal binary used by `terminal` mode |
+| `HANDOFF_HOME` | `~/.claude/handoff` | root of the pending registry (`<HANDOFF_HOME>/pending/<sha1 of the target folder>.json`) that lets the resume hook find a same-window handoff's marker from the caller window |
+
+## Verified live
+
+Unit tests cover the openers; these runs cover the parts only a real desktop can show.
+
+| Mode | Date | Result |
+| --- | --- | --- |
+| `same-window` | 2026-09-11 | 3 of 3 handoffs landed in the calling window and resumed from the local marker. |
+| `window` | 2026-09-12 | 6 sequential handoffs from one window; each opened its own editor window on its own target folder and resumed there. |
+| `terminal` | 2026-09-12 | `wt.exe` opened with `claude` running and the workspace reported as `targetCwd`. The run stopped at Claude Code's folder-trust prompt, so the hook leg was not exercised in this mode. |
+
+The resume hook reads only the target's local marker and the pending registry, so it behaves the same whichever mode launched the session.
 
 ## Limits
 
+- **A target folder Claude Code does not already trust stops `terminal` mode at the trust prompt.** The terminal opens in the right folder and `claude` starts, then waits for a person to accept the folder before any session, and therefore any hook, begins. Handing off inside a project you already work in is unaffected; a brand new worktree needs that one answer.
+
 - **The old tab stays open.** No API closes the current session; you close it yourself after the handoff is ready.
-- **The URI lands in the focused window.** The editor dispatches the extension URI to whichever window you have focused at that moment. Run `/handoff` from the project window and stay in it for about 20 seconds. If a tab still lands elsewhere, close it without submitting its prompt; the next tab you open in the project window resumes the handoff from the pending marker.
+- **Two handoffs within about 20 seconds of each other can still land in the wrong tab.** Spawns are not queued, by design; if that happens, the next tab you open in the target project resumes the handoff from the pending marker regardless.
 - **Extension plugin loading is not officially documented.** Path A is expected to work in the extension as it does in the CLI, but only path B (copy into `~/.claude/skills` plus `install.cjs`) has been verified there.
-- **Same-window context reset is impossible** in the extension; this skill targets the new-session flow, which is the only thing the extension exposes.
 - The handoff doc is the agent's own prior notes. It never auto-runs the `verify` or `nextStep` commands; verify against the live repo before destructive actions.
-- The first message of the fresh session starts with the title stored in the local `.claude/handoff/handoff.pending.json` marker (sanitized to 60 characters of letters, digits, spaces and `._#-`). The marker is written by your own agent and `.claude/handoff/` is added to the project's `.gitignore`, so it never comes from a cloned repository.
+- The first message of the fresh session starts with the title stored in the pending marker (sanitized to 60 characters of letters, digits, spaces and `._#-`). The marker is written by your own agent, `.claude/handoff/` is added to the project's `.gitignore` so it never comes from a cloned repository, and registry entries under `HANDOFF_HOME` carry no secrets, only paths and the title.
 
 ## Development
 
@@ -99,9 +122,11 @@ hooks/
   sessionstart-handoff.cjs       fresh-session resume hook
   usage-monitor.cjs              PostToolUse rate-limit auto-trigger
 tools/
-  handoff.cjs                    entry: capture, redact, write, spawn
+  handoff.cjs                    entry: capture, redact, write, spawn, --respawn
   capture.cjs / handoff-format.cjs / marker.cjs / redact.cjs / memory.cjs
   paths.cjs / spawn-tab.cjs / session-title.cjs
+  registry.cjs                   pending registry (~/.claude/handoff/pending/)
+  handoff-messages.cjs           resume message + URI prompt text, per spawn mode
   usage-threshold.cjs / usage-flag.cjs   auto-trigger logic (pure) + state
   install.cjs                    fallback: wires both hooks into settings.json
   __tests__/                     node:test suite

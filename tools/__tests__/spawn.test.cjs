@@ -6,12 +6,12 @@ test('buildUri encodes the prompt backstop', () => {
   assert.ok(uri.startsWith('cursor://anthropic.claude-code/open?prompt='))
   assert.ok(uri.includes('%20') && !uri.includes(' '))
 })
-test('auto cascade: uri opener succeeds -> mode uri', () => {
-  const r = spawn({ scheme: 'cursor', prompt: 'hi', cwd: '/p', openers: { uri: () => true, terminal: () => { throw new Error('unreached') } } })
-  assert.equal(r.ok, true); assert.equal(r.mode, 'uri')
+test('uri-target: uri opener succeeds -> mode uri-target', () => {
+  const r = spawn({ mode: 'uri-target', scheme: 'cursor', prompt: 'hi', cwd: '/p', openers: { uri: () => true, terminal: () => { throw new Error('unreached') } } })
+  assert.equal(r.ok, true); assert.equal(r.mode, 'uri-target')
 })
-test('auto cascade: uri fails -> falls through to terminal (CLI)', () => {
-  const r = spawn({ scheme: 'cursor', prompt: 'hi', cwd: '/p', openers: { uri: () => { throw new Error('no handler') }, terminal: () => true } })
+test('uri-target: uri fails -> falls through to terminal (CLI)', () => {
+  const r = spawn({ mode: 'uri-target', scheme: 'cursor', prompt: 'hi', cwd: '/p', openers: { uri: () => { throw new Error('no handler') }, terminal: () => true } })
   assert.equal(r.ok, true); assert.equal(r.mode, 'terminal')
 })
 test('both fail -> universal fallback (ok:false, "start a fresh claude")', () => {
