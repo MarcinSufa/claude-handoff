@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // hooks/stop-context-guard.cjs: Stop hook. Above the save threshold with no fresh compact snapshot for
 // this session and epoch, the turn may not end: {"decision":"block"} asks the agent to save (or refresh)
-// the state with spawn "compact". Capped at two blocks per epoch (45 s floor) so a session is never
-// stranded; everything else fails open with an empty stdout.
+// the state with spawn "compact". Capped at two blocks per epoch so a session is never stranded;
+// everything else fails open with an empty stdout.
 const fs = require('node:fs')
 const path = require('node:path')
 const { resolveProjectRoot, handoffPaths } = require(path.join(__dirname, '..', 'tools', 'paths.cjs'))
@@ -12,7 +12,6 @@ const { readContextState } = require(path.join(__dirname, '..', 'tools', 'contex
 const { snapshotState, saveInstruction } = require(path.join(__dirname, '..', 'tools', 'compact-marker.cjs'))
 
 const DENY_CAP = 2
-const DENY_FLOOR_MS = 45000
 
 function headroomWarning(saveTokens, env) {
   if (env.HANDOFF_AUTOCOMPACT_WINDOW == null || env.HANDOFF_AUTOCOMPACT_WINDOW === '') return null
@@ -36,7 +35,7 @@ function main() {
   if (!usage || usage.tokens < saveTokens) return
   const state = snapshotState(root, { sessionId, clearEpoch, tokensNow: usage.tokens })
   if (state === 'fresh') return
-  if (!claimDenial(p, sessionId, { kind: 'stop', clearEpoch, cap: DENY_CAP, floorMs: DENY_FLOOR_MS })) return
+  if (!claimDenial(p, sessionId, { kind: 'stop', clearEpoch, cap: DENY_CAP })) return
   const stale = state === 'stale'
   const reason = [
     `Your context is at ${usage.tokens} tokens (save threshold ${saveTokens}) and`,

@@ -86,13 +86,15 @@ test('baseline: none until written; writeBaseline increments clearEpoch and reco
   assert.equal(path.basename(baselineFile(p, 's1')), '.context-baseline.s1.json')
 })
 
-// ── denial counter: cap N per session, kind and clear epoch, reset after the time floor ──
+// ── denial counter: cap N per session/kind/clear epoch; the count survives any time gap and resets
+// only on a new epoch (or a different session); floorMs only enforces a minimum spacing between the
+// individual denials that consume the cap, it never re-arms an exhausted cap ──
 test('claimDenial grants the cap, then refuses, in a file named per kind and sanitized session id', () => {
   const p = paths()
   const opts = { kind: 'stop', clearEpoch: 0, cap: 2, floorMs: 45000, now: 1000 }
   assert.equal(claimDenial(p, 'unsafe/s', opts), true)
-  assert.equal(claimDenial(p, 'unsafe/s', { ...opts, now: 2000 }), true)
-  assert.equal(claimDenial(p, 'unsafe/s', { ...opts, now: 3000 }), false)
+  assert.equal(claimDenial(p, 'unsafe/s', { ...opts, now: 46001 }), true)
+  assert.equal(claimDenial(p, 'unsafe/s', { ...opts, now: 92002 }), false)
   assert.equal(path.basename(denyFile(p, 'unsafe/s', 'stop')), '.stop-deny.unsafe_s.json')
   assert.ok(fs.existsSync(denyFile(p, 'unsafe/s', 'stop')))
   assert.equal(JSON.parse(fs.readFileSync(denyFile(p, 'unsafe/s', 'stop'), 'utf8')).count, 2)
@@ -107,14 +109,23 @@ test('claimDenial counts per kind, per session and per clear epoch', () => {
   assert.equal(claimDenial(p, 's1', { ...opts, clearEpoch: 1 }), true)
   assert.equal(claimDenial(p, 's1', { ...opts, clearEpoch: 1 }), false)
 })
-test('claimDenial resets once the last denial is older than the floor, and a corrupt file counts as empty', () => {
+test('claimDenial does NOT reset once the last denial is merely older than the floor: the cap persists within the same epoch', () => {
   const p = paths()
   const opts = { kind: 'stop', clearEpoch: 0, cap: 1, floorMs: 45000, now: 1000 }
   assert.equal(claimDenial(p, 's1', opts), true)
-  assert.equal(claimDenial(p, 's1', { ...opts, now: 46000 }), false)
-  assert.equal(claimDenial(p, 's1', { ...opts, now: 46001 }), true)
+  assert.equal(claimDenial(p, 's1', { ...opts, now: 46001 }), false, 'cap already reached, a floor-sized gap must not re-arm it')
+  assert.equal(claimDenial(p, 's1', { ...opts, now: 1000000 }), false, 'nor does a much larger gap')
   fs.writeFileSync(denyFile(p, 's1', 'stop'), '{not json')
-  assert.equal(claimDenial(p, 's1', opts), true)
+  assert.equal(claimDenial(p, 's1', opts), true, 'a corrupt file counts as empty state')
+})
+test('claimDenial suppresses a denial attempted within floorMs of the last one, without consuming the cap', () => {
+  const p = paths()
+  const opts = { kind: 'stop', clearEpoch: 0, cap: 2, floorMs: 45000, now: 100000 }
+  assert.equal(claimDenial(p, 'f2-floor', opts), true, 'first denial is emitted')
+  assert.equal(claimDenial(p, 'f2-floor', { ...opts, now: 100001 }), false, 'second denial within 45s is suppressed, not counted')
+  assert.equal(JSON.parse(fs.readFileSync(denyFile(p, 'f2-floor', 'stop'), 'utf8')).count, 1, 'the suppressed attempt left the count unchanged')
+  assert.equal(claimDenial(p, 'f2-floor', { ...opts, now: 145001 }), true, 'once spaced by the floor, the second denial is emitted')
+  assert.equal(JSON.parse(fs.readFileSync(denyFile(p, 'f2-floor', 'stop'), 'utf8')).count, 2)
 })
 
 test('corrupt baseline → null, and the next write restarts at epoch 1', () => {

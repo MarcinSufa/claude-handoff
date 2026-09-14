@@ -63,19 +63,24 @@ function writeBaseline(p, sessionId, { transcriptPath, offset }) {
   return baseline
 }
 
-// True when this refusal is still within the cap for (session, kind, epoch); the count restarts on a new
-// epoch or once the last refusal is older than floorMs. Any write failure counts as "cap reached" so a
-// broken state directory can never produce unbounded blocking.
-function claimDenial(p, sessionId, { kind, clearEpoch = 0, cap = 2, floorMs = 45000, now = Date.now() } = {}) {
+// True when this refusal is still within the cap for (session, kind, epoch); the count restarts only on
+// a new epoch or a different session, never merely because time passed. An optional floorMs enforces a
+// minimum spacing between the individual denials that consume the cap: an attempt made sooner than that
+// is suppressed (returns false) without consuming a slot, so a legitimately spaced attempt can still
+// land; the Stop and PreCompact guards leave it unset because the epoch-scoped cap alone bounds them.
+// Any write failure counts as "cap reached" so a broken state directory can never produce unbounded
+// blocking.
+function claimDenial(p, sessionId, { kind, clearEpoch = 0, cap = 2, floorMs = 0, now = Date.now() } = {}) {
   const file = denyFile(p, sessionId, kind)
   const parsed = readJson(file)
   const current = parsed && parsed.sessionId === sessionId && parsed.clearEpoch === clearEpoch &&
-    Number.isInteger(parsed.count) && Number.isFinite(parsed.lastAt) && now - parsed.lastAt <= floorMs
+    Number.isInteger(parsed.count) && Number.isFinite(parsed.lastAt)
     ? parsed
-    : { sessionId, clearEpoch, count: 0, lastAt: now }
+    : { sessionId, clearEpoch, count: 0, lastAt: null }
   if (current.count >= cap) return false
+  if (floorMs > 0 && current.lastAt != null && now - current.lastAt < floorMs) return false
   try {
-    writeJsonAtomic(p, file, { ...current, count: current.count + 1, lastAt: now })
+    writeJsonAtomic(p, file, { sessionId, clearEpoch, count: current.count + 1, lastAt: now })
     return true
   } catch {
     return false

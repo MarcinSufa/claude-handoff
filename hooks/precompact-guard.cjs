@@ -13,7 +13,6 @@ const { appendContextLog } = require(path.join(__dirname, '..', 'tools', 'contex
 const { snapshotState, saveInstruction } = require(path.join(__dirname, '..', 'tools', 'compact-marker.cjs'))
 
 const DENY_CAP = 2
-const DENY_FLOOR_MS = 45000
 
 function main() {
   let input
@@ -35,7 +34,7 @@ function main() {
   }
   const state = snapshotState(root, { sessionId, clearEpoch, tokensNow })
   if (state === 'fresh') return 0
-  if (!claimDenial(p, sessionId, { kind: 'compact', clearEpoch, cap: DENY_CAP, floorMs: DENY_FLOOR_MS })) {
+  if (!claimDenial(p, sessionId, { kind: 'compact', clearEpoch, cap: DENY_CAP })) {
     appendContextLog(p, {
       sid: sessionId, epoch: clearEpoch, offset: usage ? usage.byteOffset : 0, tokens: tokensNow,
       cacheRead: usage ? usage.cacheRead : 0, cacheCreation: usage ? usage.cacheCreation : 0, event: 'fallback:native-compaction',
