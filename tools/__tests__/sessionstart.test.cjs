@@ -173,6 +173,17 @@ for (const source of ['startup', 'fork', 'resume', 'clear']) {
   })
 }
 
+// ── F5 (known limit, pinned not fixed): a legacy manual marker left pending through a compact is still
+// there for a later normal startup to consume, even though it predates the compaction ──
+test('a manual marker left pending across a compact is still consumed by a later plain startup', () => {
+  const root = repo(); const p = marker(root, { sessionId: 'sid-14' })
+  assert.equal(run(root, { source: 'compact', session_id: 'sid-14', transcript_path: transcript(root) }).trim(), '')
+  assert.ok(fs.existsSync(p.pending), 'compact must not consume the manual marker')
+  const out = JSON.parse(run(root, { source: 'startup', session_id: 'sid-14' })).hookSpecificOutput
+  assert.match(out.initialUserMessage, /HANDOFF\.md/)
+  assert.equal(fs.existsSync(p.pending), false, 'the later plain startup consumes the pre-compact marker')
+})
+
 test('legacy marker (no resumeMode) still resumes on startup', () => {
   const root = repo(); const p = marker(root)
   assert.notEqual(run(root, { source: 'startup', session_id: 'sid-7' }).trim(), '')
