@@ -291,8 +291,8 @@ test('respawn reports a failed registry write and still returns the spawn result
   assert.ok(normalOut.spawn)
 })
 
-// The terminal and window modes launch a process that only finds the handoff through the target's
-// local marker: launching in the caller's folder instead leaves the fresh session with nothing to resume.
+// terminal/window launch a process that only finds the handoff through the target's local marker,
+// so they must resolve spawnCwd to the target; same-window launches in the caller instead.
 test('target-launching modes resolve the spawn directory to the target, same-window to the caller', () => {
   const targetCwd = repo('ho-spawncwd-target-')
   const callerCwd = repo('ho-spawncwd-caller-')
@@ -304,9 +304,13 @@ test('target-launching modes resolve the spawn directory to the target, same-win
     nonce: 'spawncwd', title: 'panel verdicts', generation: 1,
   })
 
-  // Every mode is resolved through the same branch, so the openerless modes pin it without
-  // launching a real editor or terminal: terminal falls back to manual on a missing exe, none never spawns.
-  for (const [mode, env] of [['terminal', { HANDOFF_TERMINAL_EXE: path.join(targetCwd, 'nonexistent-wt.exe') }], ['none', {}]]) {
+  // Every mode is resolved through the same branch, so pointing each opener at a nonexistent
+  // executable pins spawnCwd without ever launching a real editor or terminal.
+  const targetModes = [
+    ['terminal', { HANDOFF_TERMINAL_EXE: path.join(targetCwd, 'nonexistent-wt.exe') }],
+    ['window', { HANDOFF_EDITOR_EXE: path.join(targetCwd, 'nonexistent-editor.exe') }],
+  ]
+  for (const [mode, env] of targetModes) {
     const out = run(['--respawn', targetCwd, '--spawn', mode, '--caller-cwd', callerCwd], {
       cwd: callerCwd, home: home(), env,
     })
@@ -314,4 +318,23 @@ test('target-launching modes resolve the spawn directory to the target, same-win
     assert.strictEqual(out.sessionNamePrefix, path.basename(targetCwd).toLowerCase() + '-')
     assert.notStrictEqual(out.spawnCwd, callerCwd)
   }
+
+  const noneOut = run(['--respawn', targetCwd, '--spawn', 'none', '--caller-cwd', callerCwd], {
+    cwd: callerCwd, home: home(),
+  })
+  assert.strictEqual(noneOut.spawnCwd, targetCwd)
+  assert.strictEqual(noneOut.spawn.mode, 'manual')
+  assert.strictEqual(noneOut.spawn.ok, false)
+
+  // uriOpener and the terminal fallback both point at nonexistent targets so same-window never
+  // opens a real URI handler or terminal either.
+  const sameWindowOut = run(['--respawn', targetCwd, '--spawn', 'same-window', '--caller-cwd', callerCwd], {
+    cwd: callerCwd, home: home(),
+    env: {
+      HANDOFF_URI_SCHEME: 'ho-test-nonexistent-scheme',
+      HANDOFF_TERMINAL_EXE: path.join(callerCwd, 'nonexistent-wt.exe'),
+    },
+  })
+  assert.strictEqual(sameWindowOut.spawnCwd, callerCwd)
+  assert.strictEqual(sameWindowOut.sessionNamePrefix, path.basename(callerCwd).toLowerCase() + '-')
 })
