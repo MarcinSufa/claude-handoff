@@ -49,3 +49,28 @@ test('installAll wires BOTH SessionStart and PostToolUse, preserving existing ho
   assert.equal(pt.filter((c) => c.includes('usage-monitor.cjs')).length, 1) // not duplicated
   assert.ok(!fs.existsSync(f + '.bak'))
 })
+
+test('installAll also wires Stop and PreCompact (the plain-skill path documented in README/SKILL.md), idempotently', () => {
+  const f = tmpSettings({ hooks: {} })
+  const hooks = { sessionStart: '/abs/sessionstart-handoff.cjs', postToolUse: '/abs/usage-monitor.cjs', stop: '/abs/stop-context-guard.cjs', preCompact: '/abs/precompact-guard.cjs' }
+  installAll(f, hooks); installAll(f, hooks) // idempotent
+  const s = JSON.parse(fs.readFileSync(f, 'utf8'))
+  const stop = s.hooks.Stop.flatMap((g) => g.hooks).map((h) => h.command)
+  const preCompact = s.hooks.PreCompact.flatMap((g) => g.hooks).map((h) => h.command)
+  assert.equal(stop.filter((c) => c.includes('stop-context-guard.cjs')).length, 1)
+  assert.equal(preCompact.filter((c) => c.includes('precompact-guard.cjs')).length, 1)
+})
+
+test('the CLI entry point wires all four hooks', () => {
+  const f = tmpSettings({ hooks: {} })
+  const install = path.join(__dirname, '..', 'install.cjs')
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ho-home-'))
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
+  fs.copyFileSync(f, path.join(home, '.claude', 'settings.json'))
+  const { execFileSync } = require('node:child_process')
+  execFileSync('node', [install], { env: { ...process.env, HOME: home, USERPROFILE: home } })
+  const s = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8'))
+  for (const event of ['SessionStart', 'PostToolUse', 'Stop', 'PreCompact']) {
+    assert.ok(s.hooks[event] && s.hooks[event].length > 0, `${event} must be wired by the CLI entry point`)
+  }
+})

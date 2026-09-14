@@ -30,11 +30,14 @@ function installHook(settingsPath, hookAbsPath, eventName = 'SessionStart', opts
   }
 }
 
-// Wire both halves of the skill: the SessionStart resume hook and the PostToolUse auto-trigger.
-function installAll(settingsPath, { sessionStart, postToolUse }) {
+// Wire all four hooks of the skill: the SessionStart resume hook, the PostToolUse auto-trigger, the Stop
+// guard and the PreCompact interlock (the plugin path wires the same four through hooks/hooks.json).
+function installAll(settingsPath, { sessionStart, postToolUse, stop, preCompact }) {
   const out = {}
   if (sessionStart) out.sessionStart = installHook(settingsPath, sessionStart, 'SessionStart')
   if (postToolUse) out.postToolUse = installHook(settingsPath, postToolUse, 'PostToolUse', { matcher: '' })
+  if (stop) out.stop = installHook(settingsPath, stop, 'Stop')
+  if (preCompact) out.preCompact = installHook(settingsPath, preCompact, 'PreCompact')
   return out
 }
 
@@ -45,6 +48,8 @@ if (require.main === module) {
   const settings = path.join(os.homedir(), '.claude', 'settings.json')
   const sessionStart = path.join(__dirname, '..', 'hooks', 'sessionstart-handoff.cjs')
   const postToolUse = path.join(__dirname, '..', 'hooks', 'usage-monitor.cjs')
-  const r = installAll(settings, { sessionStart, postToolUse })
-  process.stdout.write(JSON.stringify({ ...r, settings, sessionStart, postToolUse }, null, 2) + '\n')
+  const stop = path.join(__dirname, '..', 'hooks', 'stop-context-guard.cjs')
+  const preCompact = path.join(__dirname, '..', 'hooks', 'precompact-guard.cjs')
+  const r = installAll(settings, { sessionStart, postToolUse, stop, preCompact })
+  process.stdout.write(JSON.stringify({ ...r, settings, sessionStart, postToolUse, stop, preCompact }, null, 2) + '\n')
 }
