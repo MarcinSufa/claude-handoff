@@ -31,7 +31,6 @@ function appendContextLog(p, entry) {
     const last = readLast(lastFile(p, sid))
     if (last && last.sid === sid && last.offset === offset && last.event === event) return false
     const log = contextLogFile(p)
-    if (sizeOf(log) > MAX_LOG_BYTES) return false
     const line = {}
     for (const key of FIELDS) line[key] = entry[key]
     line.ts = entry.ts || new Date().toISOString()
@@ -42,8 +41,10 @@ function appendContextLog(p, entry) {
     line.cacheRead = Number(entry.cacheRead) || 0
     line.cacheCreation = Number(entry.cacheCreation) || 0
     line.event = event
+    const serialized = JSON.stringify(line) + '\n'
+    if (sizeOf(log) + Buffer.byteLength(serialized) > MAX_LOG_BYTES) return false
     fs.mkdirSync(p.dir, { recursive: true })
-    fs.appendFileSync(log, JSON.stringify(line) + '\n')
+    fs.appendFileSync(log, serialized)
     const tmp = lastFile(p, sid) + '.tmp'
     fs.writeFileSync(tmp, JSON.stringify({ sid, offset, event }))
     fs.renameSync(tmp, lastFile(p, sid))

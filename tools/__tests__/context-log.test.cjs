@@ -43,6 +43,14 @@ test('a log above the size cap is left alone and the call reports false', () => 
   assert.equal(fs.statSync(contextLogFile(p)).size, MAX_LOG_BYTES + 1)
 })
 
+test('an append that would push the log past the cap is refused even though the log is under the cap before it', () => {
+  const p = paths()
+  fs.mkdirSync(p.dir, { recursive: true })
+  fs.writeFileSync(contextLogFile(p), Buffer.alloc(MAX_LOG_BYTES - 1, 'x'))
+  assert.equal(appendContextLog(p, entry()), false)
+  assert.equal(fs.statSync(contextLogFile(p)).size, MAX_LOG_BYTES - 1)
+})
+
 test('never throws: an unwritable directory reports false', () => {
   const p = handoffPaths(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ho-ctxlog-'))))
   fs.mkdirSync(path.dirname(p.dir), { recursive: true })
