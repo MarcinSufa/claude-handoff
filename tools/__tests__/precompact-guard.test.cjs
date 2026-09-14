@@ -106,12 +106,16 @@ test('HANDOFF_ALLOW_COMPACT=1 lets compaction through', () => {
   assert.equal(run(payload(root, transcript(root, [usageLine(1000, 's1')])), cleanEnv({ HANDOFF_ALLOW_COMPACT: '1' })).status, 0)
 })
 
-test('without a session id the refusal is not counted, so it still blocks and writes no state', () => {
-  const r = run({ hook_event_name: 'PreCompact', trigger: 'auto' })
-  assert.equal(r.status, 2)
-  assert.match(r.stderr, /\/clear/)
-  assert.equal(run({ hook_event_name: 'PreCompact', trigger: 'auto' }).status, 2)
-  assert.equal(run({ hook_event_name: 'PreCompact', trigger: 'auto' }).status, 2)
+test('without a session id, PreCompact fails open and logs precompact:no-session instead of blocking forever', () => {
+  const root = repo()
+  const r = run({ hook_event_name: 'PreCompact', trigger: 'auto', cwd: root })
+  assert.equal(r.status, 0)
+  assert.equal(r.stdout.trim(), '')
+  const handoffDir = path.join(root, '.claude', 'handoff')
+  const denyFiles = fs.existsSync(handoffDir) ? fs.readdirSync(handoffDir).filter((n) => n.startsWith('.compact-deny.')) : []
+  assert.deepEqual(denyFiles, [])
+  assert.deepEqual(logEvents(root), ['precompact:no-session'])
+  assert.equal(run({ hook_event_name: 'PreCompact', trigger: 'auto', cwd: root }).status, 0)
 })
 
 test('malformed, empty or unknown-trigger stdin fails open with exit 0', () => {

@@ -26,9 +26,16 @@ function main() {
   const sessionId = input.session_id || ''
   const { clearEpoch, usage } = readContextState(p, sessionId, input.transcript_path)
   const tokensNow = usage ? usage.tokens : 0
+  if (!sessionId) {
+    appendContextLog(p, {
+      sid: sessionId, epoch: clearEpoch, offset: usage ? usage.byteOffset : 0, tokens: tokensNow,
+      cacheRead: usage ? usage.cacheRead : 0, cacheCreation: usage ? usage.cacheCreation : 0, event: 'precompact:no-session',
+    })
+    return 0
+  }
   const state = snapshotState(root, { sessionId, clearEpoch, tokensNow })
   if (state === 'fresh') return 0
-  if (sessionId && !claimDenial(p, sessionId, { kind: 'compact', clearEpoch, cap: DENY_CAP, floorMs: DENY_FLOOR_MS })) {
+  if (!claimDenial(p, sessionId, { kind: 'compact', clearEpoch, cap: DENY_CAP, floorMs: DENY_FLOOR_MS })) {
     appendContextLog(p, {
       sid: sessionId, epoch: clearEpoch, offset: usage ? usage.byteOffset : 0, tokens: tokensNow,
       cacheRead: usage ? usage.cacheRead : 0, cacheCreation: usage ? usage.cacheCreation : 0, event: 'fallback:native-compaction',
