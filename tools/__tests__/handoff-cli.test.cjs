@@ -4,8 +4,9 @@ const { execFileSync, spawn: spawnProcess } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { handoffPaths } = require('../paths.cjs')
+const { handoffPaths, autoHandoffPaths } = require('../paths.cjs')
 const { writeMarker } = require('../marker.cjs')
+const { writeBaseline } = require('../usage-flag.cjs')
 const { listEntries } = require('../registry.cjs')
 const HANDOFF = path.join(__dirname, '..', 'handoff.cjs')
 
@@ -70,6 +71,87 @@ test('spawn none reports mode and paths without writing a registry entry', () =>
   assert.equal(out.targetCwd, cwd)
   assert.equal(out.callerCwd, cwd)
   assert.equal(fs.existsSync(path.join(registryHome, 'pending')), false)
+})
+
+test('spawn clear writes doc + clear marker, no registry entry, no spawn, and asks for /clear', () => {
+  const cwd = repo(); const registryHome = home()
+  const out = run([], { cwd, home: registryHome, env: { CLAUDE_CODE_SESSION_ID: 'sX' }, input: payload({ spawn: 'clear', title: 'ctx test' }) })
+  assert.equal(out.ok, true)
+  assert.equal(out.mode, 'clear')
+  assert.equal(out.spawn.mode, 'clear')
+  assert.equal(out.registry, 'skipped')
+  assert.equal(out.closeOld, undefined)
+  const p = handoffPaths(cwd)
+  assert.equal(out.message, `State saved to ${p.doc}. Type /clear; I will continue from Next step.`)
+  assert.ok(fs.existsSync(p.doc))
+  const marker = JSON.parse(fs.readFileSync(p.pending, 'utf8'))
+  assert.equal(marker.resumeMode, 'clear')
+  assert.equal(marker.sessionId, 'sX')
+  assert.equal(fs.existsSync(path.join(registryHome, 'pending')), false)
+})
+
+test('spawn clear records an empty sessionId when CLAUDE_CODE_SESSION_ID is unset', () => {
+  const cwd = repo()
+  const env = { ...process.env }; delete env.CLAUDE_CODE_SESSION_ID
+  const out = JSON.parse(execFileSync('node', [HANDOFF], { cwd, env: { ...env, HANDOFF_HOME: home() }, input: JSON.stringify(payload({ spawn: 'clear' })), encoding: 'utf8' }))
+  assert.equal(out.spawn.mode, 'clear')
+  assert.equal(JSON.parse(fs.readFileSync(handoffPaths(cwd).pending, 'utf8')).sessionId, '')
+})
+
+test('spawn compact writes a session-scoped snapshot + compact marker, no registry entry, no spawn, and leaves the manual doc alone', () => {
+  const cwd = repo(); const registryHome = home()
+  const manual = handoffPaths(cwd); fs.mkdirSync(manual.dir, { recursive: true }); fs.writeFileSync(manual.doc, '# manual')
+  const transcriptPath = path.join(cwd, 'transcript.jsonl')
+  fs.writeFileSync(transcriptPath, JSON.stringify({ type: 'assistant', sessionId: 'sX', message: { role: 'assistant', usage: { input_tokens: 120000, cache_read_input_tokens: 30000, cache_creation_input_tokens: 0 } } }) + '\n')
+  const out = run([], { cwd, home: registryHome, env: { CLAUDE_CODE_SESSION_ID: 'sX', CLAUDE_CODE_TRANSCRIPT_PATH: transcriptPath }, input: payload({ spawn: 'compact', title: 'ctx test' }) })
+  assert.equal(out.ok, true)
+  assert.equal(out.mode, 'compact')
+  assert.equal(out.spawn.mode, 'compact')
+  assert.equal(out.registry, 'skipped')
+  assert.equal(out.closeOld, undefined)
+  const p = autoHandoffPaths(cwd, 'sX')
+  assert.equal(out.doc, p.doc)
+  assert.equal(out.message, `State saved to ${p.doc}. Compaction will reset the context; continue.`)
+  assert.ok(fs.existsSync(p.doc))
+  assert.equal(fs.readFileSync(manual.doc, 'utf8'), '# manual')
+  assert.equal(fs.existsSync(manual.pending), false)
+  const marker = JSON.parse(fs.readFileSync(p.pending, 'utf8'))
+  assert.equal(marker.resumeMode, 'compact')
+  assert.equal(marker.sessionId, 'sX')
+  assert.equal(marker.clearEpoch, 0)
+  assert.equal(marker.tokensAtSave, 150000)
+  assert.equal(marker.generation, 1)
+  assert.equal(fs.existsSync(path.join(registryHome, 'pending')), false)
+})
+
+test('spawn compact takes clearEpoch from the baseline, tokensAtSave from input.transcriptPath, and bumps its own generation', () => {
+  const cwd = repo()
+  writeBaseline(handoffPaths(cwd), 'sX', { transcriptPath: 'x', offset: 0 })
+  writeBaseline(handoffPaths(cwd), 'sX', { transcriptPath: 'x', offset: 0 })
+  const transcriptPath = path.join(cwd, 't.jsonl')
+  fs.writeFileSync(transcriptPath, JSON.stringify({ type: 'assistant', sessionId: 'sX', message: { role: 'assistant', usage: { input_tokens: 5000 } } }) + '\n')
+  const env = { CLAUDE_CODE_SESSION_ID: 'sX' }
+  run([], { cwd, home: home(), env, input: payload({ spawn: 'compact', transcriptPath }) })
+  const out = run([], { cwd, home: home(), env, input: payload({ spawn: 'compact', transcriptPath }) })
+  const marker = JSON.parse(fs.readFileSync(autoHandoffPaths(cwd, 'sX').pending, 'utf8'))
+  assert.equal(marker.clearEpoch, 2)
+  assert.equal(marker.tokensAtSave, 5000)
+  assert.equal(marker.generation, 2)
+  assert.equal(out.generation, 2)
+})
+
+test('spawn compact without any transcript records tokensAtSave 0', () => {
+  const cwd = repo()
+  const env = { ...process.env, HANDOFF_HOME: home(), CLAUDE_CODE_SESSION_ID: 'sX' }; delete env.CLAUDE_CODE_TRANSCRIPT_PATH
+  execFileSync('node', [HANDOFF], { cwd, env, input: JSON.stringify(payload({ spawn: 'compact' })), encoding: 'utf8' })
+  assert.equal(JSON.parse(fs.readFileSync(autoHandoffPaths(cwd, 'sX').pending, 'utf8')).tokensAtSave, 0)
+})
+
+test('other spawn modes write no resumeMode into the marker', () => {
+  const cwd = repo()
+  run([], { cwd, home: home(), env: { HANDOFF_SPAWN: 'none' }, input: payload({ spawn: 'none' }) })
+  const marker = JSON.parse(fs.readFileSync(handoffPaths(cwd).pending, 'utf8'))
+  assert.equal(marker.resumeMode, undefined)
 })
 
 test('same-window message helper names the absolute handoff and target and leads with the tab title', () => {

@@ -3,7 +3,7 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { resolveProjectRoot, handoffPaths } = require('../paths.cjs')
+const { resolveProjectRoot, handoffPaths, autoHandoffPaths } = require('../paths.cjs')
 
 function tmpRepo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ho-paths-'))
@@ -31,6 +31,19 @@ test('CLAUDE_PROJECT_DIR has NO effect (it is empty/ignored in the target env)',
   try {
     assert.equal(fs.realpathSync(resolveProjectRoot(root)), root)
   } finally { delete process.env.CLAUDE_PROJECT_DIR }
+})
+
+test('autoHandoffPaths scopes the snapshot under auto/<sanitized session id> and keeps the repo gitignore', () => {
+  const root = tmpRepo()
+  const p = autoHandoffPaths(root, 'sX')
+  assert.equal(p.root, root)
+  assert.equal(p.dir, path.join(root, '.claude', 'handoff', 'auto', 'sX'))
+  assert.equal(p.doc, path.join(p.dir, 'HANDOFF.md'))
+  assert.equal(p.pending, path.join(p.dir, 'handoff.pending.json'))
+  assert.equal(p.consumed, path.join(p.dir, 'handoff.consumed.json'))
+  assert.equal(p.gitignore, handoffPaths(root).gitignore)
+  assert.equal(path.basename(autoHandoffPaths(root, 'unsafe/sess:id').dir), 'unsafe_sess_id')
+  assert.equal(path.basename(autoHandoffPaths(root, '').dir), 'unknown')
 })
 
 test('non-git dir falls back to the start dir itself', () => {

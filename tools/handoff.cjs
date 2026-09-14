@@ -9,6 +9,9 @@ const { readMarker } = require('./marker.cjs')
 const { writeEntry } = require('./registry.cjs')
 const { buildRegistryEntry } = require('./handoff-registry-entry.cjs')
 const { buildMessages } = require('./handoff-messages.cjs')
+const { readNewestUsage } = require('./transcript-tail.cjs')
+
+const LOCAL_MODES = new Set(['clear', 'compact'])
 
 function emit(result) {
   process.stdout.write(JSON.stringify(result))
@@ -25,7 +28,7 @@ function toPositiveInt(value, fallback) {
 }
 
 function writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }) {
-  if (mode === 'none') return 'skipped'
+  if (mode === 'none' || LOCAL_MODES.has(mode)) return 'skipped'
   try {
     writeEntry(registryHome(), buildRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation }))
     return 'written'
@@ -37,6 +40,10 @@ function writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, g
 function dispatch({ targetCwd, callerCwd, doc, pending, title, generation, spawnField }) {
   const mode = resolveMode(spawnField)
   const tabTitle = composeTitle(title, generation)
+  if (LOCAL_MODES.has(mode)) {
+    const spawnResult = spawn({ mode, doc })
+    return { ok: true, mode, registry: 'skipped', spawn: spawnResult, doc, targetCwd, callerCwd, title: tabTitle, generation, message: spawnResult.message }
+  }
   const messages = buildMessages({ mode, tabTitle, doc, targetCwd, callerCwd, callerIsRepo: callerIsRepo(callerCwd) })
   const spawnCwd = mode === 'same-window' ? callerCwd : targetCwd
   const registryStatus = writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation })
@@ -64,11 +71,22 @@ function runRespawn(targetArg, spawnField, callerCwdArg) {
   }))
 }
 
+function tokensNow(transcriptPath, sessionId) {
+  const usage = readNewestUsage(transcriptPath, { sessionId: sessionId || '' })
+  return usage ? usage.tokens : 0
+}
+
 function runCapture() {
   const stdin = fs.readFileSync(0, 'utf8')
   let input = {}
   try { input = JSON.parse(stdin) } catch { input = {} }
-  const cap = capture(stdin, { fromSessionId: process.env.CLAUDE_CODE_SESSION_ID || null })
+  const mode = resolveMode(input.spawn)
+  const fromSessionId = process.env.CLAUDE_CODE_SESSION_ID || null
+  const cap = capture(stdin, {
+    fromSessionId,
+    resumeMode: LOCAL_MODES.has(mode) ? mode : undefined,
+    tokensAtSave: mode === 'compact' ? tokensNow(input.transcriptPath || process.env.CLAUDE_CODE_TRANSCRIPT_PATH, fromSessionId) : undefined,
+  })
   if (!cap.ok) { emit({ ok: false, stage: 'capture', reason: cap.reason }); return }
   const callerCwd = input.callerCwd ? path.resolve(input.callerCwd) : process.cwd()
   emit(dispatch({

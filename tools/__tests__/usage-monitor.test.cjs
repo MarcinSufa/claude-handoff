@@ -11,8 +11,23 @@ function repo() { const r = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir()
 // Clean env so test results don't depend on the developer's own HANDOFF_* overrides.
 function cleanEnv(over = {}) {
   const e = { ...process.env }
-  delete e.HANDOFF_AUTO_SAVE_PERCENT; delete e.HANDOFF_URGENT_PERCENT
+  for (const key of Object.keys(e)) if (key.startsWith('HANDOFF_')) delete e[key]
   return { ...e, ...over }
+}
+function usageLine(tokens, sessionId, extra = {}) {
+  return JSON.stringify({
+    type: 'assistant', sessionId, isSidechain: false,
+    message: { role: 'assistant', usage: { input_tokens: tokens, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 } },
+    ...extra,
+  })
+}
+function transcript(root, lines) {
+  const file = path.join(root, 'transcript.jsonl')
+  fs.writeFileSync(file, lines.map((l) => l + '\n').join(''))
+  return file
+}
+function ctxPay(root, transcriptPath, sessionId = 's1', over = {}) {
+  return { hook_event_name: 'PostToolUse', session_id: sessionId, cwd: root, tool_name: 'Read', transcript_path: transcriptPath, ...over }
 }
 function run(payload, env = cleanEnv()) {
   return execFileSync('node', [HOOK], { input: JSON.stringify(payload), encoding: 'utf8', env })
@@ -57,4 +72,111 @@ test('disabled via env → silent even at 99%', () => {
 test('malformed stdin → empty output, fail-open (no throw)', () => {
   const out = execFileSync('node', [HOOK], { input: '{not json', encoding: 'utf8', env: cleanEnv() })
   assert.equal(out.trim(), '')
+})
+
+// ── context signal: newest assistant usage in transcript_path ──
+test('context below the save threshold → silent', () => {
+  const root = repo()
+  assert.equal(run(ctxPay(root, transcript(root, [usageLine(140000, 's1')]))).trim(), '')
+})
+test('context at 155k → save nudge naming spawn compact, the /clear fallback, and the token count', () => {
+  const root = repo()
+  const out = JSON.parse(run(ctxPay(root, transcript(root, [usageLine(155000, 's1')]))))
+  assert.equal(out.hookSpecificOutput.hookEventName, 'PostToolUse')
+  const text = out.hookSpecificOutput.additionalContext
+  assert.match(text, /"spawn":\s*"compact"/)
+  assert.match(text, /spawn.*clear/i)
+  assert.match(text, /\/clear/)
+  assert.match(text, /155/)
+  assert.match(text, /handoff\.cjs/)
+  assert.doesNotMatch(text, /Do NOT run \/compact/)
+})
+
+// ── context log: one NDJSON line per new usage offset, on every tool call ──
+function logLines(root) {
+  const file = path.join(root, '.claude', 'handoff', 'context-log.ndjson')
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l)) : []
+}
+test('every tool call appends the context reading once per transcript offset, even far below the thresholds', () => {
+  const root = repo()
+  const file = transcript(root, [JSON.stringify({ type: 'assistant', sessionId: 's1', message: { role: 'assistant', usage: { input_tokens: 100, cache_read_input_tokens: 9000, cache_creation_input_tokens: 900 } } })])
+  assert.equal(run(ctxPay(root, file)).trim(), '')
+  assert.equal(run(ctxPay(root, file)).trim(), '')
+  let lines = logLines(root)
+  assert.equal(lines.length, 1)
+  assert.deepEqual(Object.keys(lines[0]).sort(), ['cacheCreation', 'cacheRead', 'epoch', 'event', 'offset', 'sid', 'tokens', 'ts'])
+  assert.deepEqual({ sid: lines[0].sid, epoch: lines[0].epoch, tokens: lines[0].tokens, cacheRead: lines[0].cacheRead, cacheCreation: lines[0].cacheCreation, event: lines[0].event, offset: lines[0].offset },
+    { sid: 's1', epoch: 0, tokens: 10000, cacheRead: 9000, cacheCreation: 900, event: 'usage', offset: fs.statSync(file).size - 1 })
+  fs.appendFileSync(file, usageLine(11000, 's1') + '\n')
+  run(ctxPay(root, file))
+  lines = logLines(root)
+  assert.equal(lines.length, 2)
+  assert.equal(lines[1].tokens, 11000)
+})
+test('the context log records the current clear epoch and skips a transcript without usage', () => {
+  const root = repo()
+  const file = transcript(root, [usageLine(500, 's1')])
+  const { writeBaseline } = require('../usage-flag.cjs')
+  const { handoffPaths } = require('../paths.cjs')
+  writeBaseline(handoffPaths(root), 's1', { transcriptPath: 'other', offset: 0 })
+  run(ctxPay(root, file))
+  assert.equal(logLines(root)[0].epoch, 1)
+  const empty = repo()
+  run(ctxPay(empty, transcript(empty, [])))
+  assert.deepEqual(logLines(empty), [])
+})
+test('context nudge is single-shot per level, then escalates to urgent at 185k', () => {
+  const root = repo()
+  const file = transcript(root, [usageLine(155000, 's1')])
+  assert.notEqual(run(ctxPay(root, file)).trim(), '')
+  assert.equal(run(ctxPay(root, file)).trim(), '')
+  fs.appendFileSync(file, usageLine(185000, 's1') + '\n')
+  const urgent = JSON.parse(run(ctxPay(root, file)))
+  assert.match(urgent.hookSpecificOutput.additionalContext, /urgent/i)
+  assert.match(urgent.hookSpecificOutput.additionalContext, /185/)
+  assert.equal(run(ctxPay(root, file)).trim(), '')
+})
+test('context levels can be disabled via env', () => {
+  const root = repo()
+  const env = cleanEnv({ HANDOFF_CONTEXT_SAVE_TOKENS: 'disabled' })
+  assert.equal(run(ctxPay(root, transcript(root, [usageLine(155000, 's1')])), env).trim(), '')
+})
+test('sidechain lines and other sessions never count', () => {
+  const root = repo()
+  const file = transcript(root, [usageLine(200000, 's1', { isSidechain: true }), usageLine(200000, 'other')])
+  assert.equal(run(ctxPay(root, file)).trim(), '')
+})
+test('missing transcript file → silent, exit 0', () => {
+  const root = repo()
+  assert.equal(run(ctxPay(root, path.join(root, 'nope.jsonl'))).trim(), '')
+})
+test('rate-limit and context signals are independent', () => {
+  const root = repo()
+  const file = transcript(root, [usageLine(10000, 's1')])
+  const rate = JSON.parse(run(ctxPay(root, file, 's1', { rate_limits: { five_hour: { used_percentage: 92 } } })))
+  assert.match(rate.hookSpecificOutput.additionalContext, /92/)
+  assert.doesNotMatch(rate.hookSpecificOutput.additionalContext, /\/clear/)
+  fs.appendFileSync(file, usageLine(155000, 's1') + '\n')
+  const both = JSON.parse(run(ctxPay(root, file, 's1', { rate_limits: { five_hour: { used_percentage: 96 } } })))
+  assert.match(both.hookSpecificOutput.additionalContext, /96/)
+  assert.match(both.hookSpecificOutput.additionalContext, /155/)
+})
+test('two sessions in one repo keep separate flag files', () => {
+  const root = repo()
+  const file = transcript(root, [usageLine(155000, 'a'), usageLine(155000, 'b')])
+  assert.notEqual(run(ctxPay(root, file, 'a')).trim(), '')
+  assert.notEqual(run(ctxPay(root, file, 'b')).trim(), '')
+  assert.ok(fs.existsSync(path.join(root, '.claude', 'handoff', '.last-warned.a.json')))
+  assert.ok(fs.existsSync(path.join(root, '.claude', 'handoff', '.last-warned.b.json')))
+})
+test('usage at or before the clear baseline offset is ignored; usage after it re-arms', () => {
+  const root = repo()
+  const file = transcript(root, [usageLine(155000, 's1')])
+  assert.notEqual(run(ctxPay(root, file)).trim(), '')
+  const { writeBaseline } = require('../usage-flag.cjs')
+  const { handoffPaths } = require('../paths.cjs')
+  writeBaseline(handoffPaths(root), 's1', { transcriptPath: file, offset: fs.statSync(file).size })
+  assert.equal(run(ctxPay(root, file)).trim(), '')
+  fs.appendFileSync(file, usageLine(155000, 's1') + '\n')
+  assert.notEqual(run(ctxPay(root, file)).trim(), '')
 })
