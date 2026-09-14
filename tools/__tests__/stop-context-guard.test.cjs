@@ -147,3 +147,10 @@ test('fail-open: stop_hook_active, other events, sidechain-only usage, missing t
   const empty = run('')
   assert.equal(empty.status, 0); assert.equal(empty.stdout.trim(), '')
 })
+
+test('a missing session_id is capped like any other session, not blocked forever (unlike the PreCompact F1 bug)', () => {
+  const root = repo(); const file = transcript(root, [usageLine(155000, undefined)])
+  block(run(payload(root, file, undefined)))
+  block(run(payload(root, file, undefined)))
+  assert.equal(run(payload(root, file, undefined)).stdout.trim(), '')
+})
