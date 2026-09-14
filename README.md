@@ -159,7 +159,7 @@ tools/
   usage-threshold.cjs / usage-flag.cjs   auto-trigger logic (pure) + per-session flag, baseline and deny counter
   context-tokens.cjs / transcript-tail.cjs / context-state.cjs   context size from the transcript (pure sum, bounded tail read, epoch-aware reading)
   compact-marker.cjs / context-log.cjs   auto snapshot ownership + freshness, save instruction; NDJSON context log
-  install.cjs                    fallback: wires the SessionStart and PostToolUse hooks into settings.json
+  install.cjs                    fallback: wires all four hooks into settings.json
   __tests__/                     node:test suite
 ```
 
