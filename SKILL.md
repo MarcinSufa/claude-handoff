@@ -55,6 +55,10 @@ Same-window still works when the current window's folder is not a git repository
 - **Defensive:** `rate_limits` is exposed to hook stdin only on newer Claude Code for Pro/Max; where it's absent the hook silently no-ops. It never blocks a tool call (fail-open).
 - **Nudge-only by design:** at 95% it still only nudges (it does not auto-author a degraded handoff). Durable memory is the independent safety net, and a real handoff stays agent-authored and high-fidelity.
 
+## Rotation actuator
+
+`tools/rotate.cjs` is a launcher that accepts JSON on stdin, returns JSON on stdout, and exits 0 only when `ok` is true. The exo-vault hook calls it through `EXOVAULT_ROTATE_LAUNCHER`, then `$CLAUDE_PLUGIN_ROOT/tools/rotate.cjs`, then the plugin cache at version 1.1.0 or newer. Rotation is opt-in on the exo-vault side with `EXOVAULT_ROTATION=1`; this plugin ships no `PreCompact` or `Stop` guard. Cursor refuses to launch when more than one Cursor window has the directory open.
+
 ## Notes
 - Path anchor is **cwd to nearest `.git`** (never `CLAUDE_PROJECT_DIR`), so the write-path and read-path can't diverge.
 - Secrets (DB URLs with passwords, API keys, tokens) are redacted before any write.

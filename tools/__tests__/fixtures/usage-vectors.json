@@ -1,0 +1,91 @@
+{
+  "$contract": "contracts-S3.md C1, C15",
+  "provenance": "synthetic transcript excerpts covering exactly the 5 cases C15 lists (sidechain line, foreign sessionId, truncated first line of a tail window, a line split across the 64KB boundary simulated via an explicit window_start byte offset, a [1m] model id); tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens per C1's last_usage definition, outputTokens = message.usage.output_tokens, byteOffset = cumulative UTF-8 bytes of the lines actually read (LF-terminated). this_session for the fixture is c9803d8e-256f-4c41-8e5d-787ea2ce385c, matching the session id used throughout fixtures-S2 (records-canonical.json, marker/valid.json) for continuity across S2/S3 fixtures.",
+  "this_session": "c9803d8e-256f-4c41-8e5d-787ea2ce385c",
+  "cases": [
+    {
+      "name": "sidechain_line_skipped",
+      "transcript_jsonl": [
+        "{\"type\":\"assistant\",\"sessionId\":\"c9803d8e-256f-4c41-8e5d-787ea2ce385c\",\"isSidechain\":true,\"message\":{\"id\":\"msg_side_1\",\"model\":\"claude-haiku-4-5-20251001\",\"usage\":{\"input_tokens\":5,\"cache_creation_input_tokens\":100,\"cache_read_input_tokens\":200,\"output_tokens\":20}}}",
+        "{\"type\":\"assistant\",\"sessionId\":\"c9803d8e-256f-4c41-8e5d-787ea2ce385c\",\"isSidechain\":false,\"message\":{\"id\":\"msg_main_1\",\"model\":\"claude-haiku-4-5-20251001\",\"usage\":{\"input_tokens\":8,\"cache_creation_input_tokens\":300,\"cache_read_input_tokens\":400,\"output_tokens\":30}}}"
+      ],
+      "window_start_byte_offset": 0,
+      "expected": {
+        "tokens": 708,
+        "outputTokens": 30,
+        "cacheRead": 400,
+        "cacheCreation": 300,
+        "byteOffset": 535
+      },
+      "note": "the sidechain line (isSidechain:true) is excluded by C1's last_usage definition; the newest NON-sidechain assistant usage line in this session wins (msg_main_1)"
+    },
+    {
+      "name": "foreign_sessionId_skipped",
+      "this_session": "c9803d8e-256f-4c41-8e5d-787ea2ce385c",
+      "transcript_jsonl": [
+        "{\"type\":\"assistant\",\"sessionId\":\"a1a1a1a1-1111-4111-8111-a1a1a1a1a1a1\",\"isSidechain\":false,\"message\":{\"id\":\"msg_foreign_1\",\"model\":\"claude-haiku-4-5-20251001\",\"usage\":{\"input_tokens\":99,\"cache_creation_input_tokens\":9999,\"cache_read_input_tokens\":9999,\"output_tokens\":999}}}",
+        "{\"type\":\"assistant\",\"sessionId\":\"c9803d8e-256f-4c41-8e5d-787ea2ce385c\",\"isSidechain\":false,\"message\":{\"id\":\"msg_mine_1\",\"model\":\"claude-haiku-4-5-20251001\",\"usage\":{\"input_tokens\":10,\"cache_creation_input_tokens\":500,\"cache_read_input_tokens\":600,\"output_tokens\":40}}}"
+      ],
+      "window_start_byte_offset": 0,
+      "expected": {
+        "tokens": 1110,
+        "outputTokens": 40,
+        "cacheRead": 600,
+        "cacheCreation": 500,
+        "byteOffset": 544
+      },
+      "note": "sessionId !== this session is excluded per C1 last_usage definition (P0-g); the foreign line is ignored even though it is newer in wall-clock terms within the same file"
+    },
+    {
+      "name": "truncated_first_line_of_tail_window",
+      "transcript_jsonl": [
+        "\"id\":\"msg_trunc_1\",\"message\":{\"usage\":{\"input_tokens\":1}}}",
+        "{\"type\":\"assistant\",\"sessionId\":\"c9803d8e-256f-4c41-8e5d-787ea2ce385c\",\"isSidechain\":false,\"message\":{\"id\":\"msg_trunc_2\",\"model\":\"claude-haiku-4-5-20251001\",\"usage\":{\"input_tokens\":12,\"cache_creation_input_tokens\":700,\"cache_read_input_tokens\":800,\"output_tokens\":50}}}"
+      ],
+      "window_start_byte_offset": 5000,
+      "expected": {
+        "tokens": 1512,
+        "outputTokens": 50,
+        "cacheRead": 800,
+        "cacheCreation": 700,
+        "byteOffset": 329
+      },
+      "note": "usage.cjs windowed tail read (64KB->256KB->...) can start mid-line; the first line of the window is dropped as unparsable JSON and the reader proceeds from the next newline-terminated line"
+    },
+    {
+      "name": "line_split_across_64KB_boundary",
+      "transcript_full_line": "{\"type\":\"assistant\",\"sessionId\":\"c9803d8e-256f-4c41-8e5d-787ea2ce385c\",\"isSidechain\":false,\"message\":{\"id\":\"msg_boundary_1\",\"model\":\"claude-haiku-4-5-20251001\",\"usage\":{\"input_tokens\":15,\"cache_creation_input_tokens\":900,\"cache_read_input_tokens\":1000,\"output_tokens\":60}}}",
+      "simulated_split_at_byte": 65536,
+      "transcript_jsonl_as_read_by_64KB_window": [
+        "e-256f-4c41-8e5d-787ea2ce385c\",\"isSidechain\":false,\"message\":{\"id\":\"msg_boundary_1\",\"model\":\"claude-haiku-4-5-20251001\",\"usage\":{\"input_tokens\":15,\"cache_creation_input_tokens\":900,\"cache_read_input_tokens\":1000,\"output_tokens\":60}}}"
+      ],
+      "window_start_byte_offset": 65536,
+      "note_on_before_fragment": "{\"type\":\"assistant\",\"sessionId\":\"c9803d8",
+      "expected": {
+        "tokens": null,
+        "outputTokens": null,
+        "cacheRead": null,
+        "cacheCreation": null,
+        "byteOffset": null,
+        "code": "unparsable_split_line_widen_to_next_window"
+      },
+      "note": "C1 usage.cjs read path widens 64KB -> 256KB -> 1MB -> 4MB precisely for this case: a line straddling the window boundary is unparsable at 64KB and the reader must retry with the next larger window, which starts before the split and captures the whole line"
+    },
+    {
+      "name": "model_id_1m_suffix_sets_window",
+      "transcript_jsonl": [
+        "{\"type\":\"assistant\",\"sessionId\":\"c9803d8e-256f-4c41-8e5d-787ea2ce385c\",\"isSidechain\":false,\"message\":{\"id\":\"msg_1m_1\",\"model\":\"claude-sonnet-5-20260101[1m]\",\"usage\":{\"input_tokens\":20,\"cache_creation_input_tokens\":40000,\"cache_read_input_tokens\":500000,\"output_tokens\":800}}}"
+      ],
+      "window_start_byte_offset": 0,
+      "expected": {
+        "tokens": 540020,
+        "outputTokens": 800,
+        "cacheRead": 500000,
+        "cacheCreation": 40000,
+        "byteOffset": 276,
+        "window_W": 1000000
+      },
+      "note": "C1: W = 200000, or 1000000 when the transcript's message.model ends in [1m] (EXOVAULT_WINDOW overrides both)"
+    }
+  ]
+}
