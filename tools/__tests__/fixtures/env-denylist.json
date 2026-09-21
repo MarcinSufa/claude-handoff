@@ -1,0 +1,82 @@
+{
+  "$contract": "contracts-S3.md C10",
+  "provenance": "observed keys copied verbatim from spike-P0-e/marker-0049672fbb20.json, marker-1279f9edce32.json, marker-13f92a0285a8.json, marker-a54cc7e7b222.json \"stripped_env\" (identical set in all four); CLAUDECODE and 9 CLAUDE_CODE_ prefixed keys (\"the nine observed keys\" of C10 = the 9 CLAUDE_CODE_* names, CLAUDECODE counted separately). ELECTRON_RUN_AS_NODE is named by C10 itself (fusion-S3-split.md) but was not observed set in the P0-e probe environment, so it is listed here as contract-mandated, not spike-observed.",
+  "regex": "^CLAUDE_CODE_",
+  "always_strip_exact": [
+    "CLAUDECODE",
+    "ELECTRON_RUN_AS_NODE"
+  ],
+  "observed_nine": [
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
+    "CLAUDE_CODE_ENABLE_TASKS",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID"
+  ],
+  "all_observed_including_non_prefixed": [
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
+    "CLAUDE_CODE_ENABLE_TASKS",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID"
+  ],
+  "vectors": [
+    {
+      "env": {
+        "CLAUDE_CODE_SESSION_ID": "abc",
+        "PATH": "/usr/bin",
+        "HOME": "/home/x"
+      },
+      "expected_stripped": [
+        "CLAUDE_CODE_SESSION_ID"
+      ],
+      "expected_kept": [
+        "PATH",
+        "HOME"
+      ]
+    },
+    {
+      "env": {
+        "CLAUDECODE": "1",
+        "ELECTRON_RUN_AS_NODE": "1",
+        "NODE_ENV": "production"
+      },
+      "expected_stripped": [
+        "CLAUDECODE",
+        "ELECTRON_RUN_AS_NODE"
+      ],
+      "expected_kept": [
+        "NODE_ENV"
+      ]
+    },
+    {
+      "env": {
+        "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/s",
+        "CLAUDE_CODE_MESSAGING_TOKEN": "tok",
+        "OTHER_CLAUDE_VAR": "keep-me"
+      },
+      "expected_stripped": [
+        "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN"
+      ],
+      "expected_kept": [
+        "OTHER_CLAUDE_VAR"
+      ],
+      "note": "regex is ^CLAUDE_CODE_ (anchored prefix), OTHER_CLAUDE_VAR does not match"
+    },
+    {
+      "env": {},
+      "expected_stripped": [],
+      "expected_kept": []
+    }
+  ]
+}

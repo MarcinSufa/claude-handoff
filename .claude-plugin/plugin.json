@@ -1,6 +1,6 @@
 {
   "name": "handoff",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Hand off a Claude Code session to a fresh-context session without losing state. Captures a structured working-state doc, opens a new tab (Cursor/VS Code extension) or terminal (CLI) that auto-resumes it, wakes it with a cross-session message, and names the tab after the topic.",
   "author": {
     "name": "Marcin Sufa",

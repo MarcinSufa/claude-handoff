@@ -94,6 +94,10 @@ Unit tests cover the openers; these runs cover the parts only a real desktop can
 
 The resume hook reads only the target's local marker and the pending registry, so it behaves the same whichever mode launched the session.
 
+## Rotation actuator
+
+`tools/rotate.cjs` is a launcher: it reads JSON from stdin, writes JSON to stdout, and exits 0 only when `ok` is true. The exo-vault hook calls it through `EXOVAULT_ROTATE_LAUNCHER`, then `$CLAUDE_PLUGIN_ROOT/tools/rotate.cjs`, then the plugin cache at version 1.1.0 or newer. Rotation is opt-in on the exo-vault side with `EXOVAULT_ROTATION=1`; this plugin ships no `PreCompact` or `Stop` guard. Cursor refuses to launch when more than one Cursor window has the directory open.
+
 ## Limits
 
 - **A target folder Claude Code does not already trust stops `terminal` mode at the trust prompt.** The terminal opens in the right folder and `claude` starts, then waits for a person to accept the folder before any session, and therefore any hook, begins. Handing off inside a project you already work in is unaffected; a brand new worktree needs that one answer.

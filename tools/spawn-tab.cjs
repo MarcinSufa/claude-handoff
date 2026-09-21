@@ -6,11 +6,35 @@ function buildUri(scheme, prompt) {
   return `${scheme || 'cursor'}://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}`
 }
 
+function quotePowerShell(value) {
+  return `'${String(value).replace(/'/g, "''")}'`
+}
+
+function quoteProcessArgument(value) {
+  const text = String(value)
+  if (!/[\s\"]/.test(text)) return text
+  return `"${text.replace(/(\\*)\"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1')}"`
+}
+
+function launchScript(exe, args, options) {
+  const values = args.map((value) => quoteProcessArgument(value))
+  const workingDirectory = options && options.workingDirectory
+  const suffix = workingDirectory === undefined ? '' : ` -WorkingDirectory ${quotePowerShell(workingDirectory)}`
+  return `Start-Process -FilePath ${quotePowerShell(exe)} -ArgumentList ${values.map(quotePowerShell).join(',')} -PassThru${suffix} | Select-Object -ExpandProperty Id`
+}
+
+function pidFrom(output) {
+  const value = String(output).replace(/^\ufeff/, '').trim()
+  return /^\d+$/.test(value) ? Number(value) : null
+}
+
 // A session launched by the Cursor extension inherits ELECTRON_RUN_AS_NODE=1; with it Cursor.exe boots as plain node
 // and rejects --open-url, so every URI/editor launch below runs with that variable removed.
 function childEnv(env) {
   const out = { ...(env || process.env) }
-  delete out.ELECTRON_RUN_AS_NODE
+  for (const key of Object.keys(out)) {
+    if (/^CLAUDE_CODE_/.test(key) || key === 'CLAUDECODE' || key === 'ELECTRON_RUN_AS_NODE') delete out[key]
+  }
   return out
 }
 
@@ -51,9 +75,9 @@ function terminalOpener(cwd, deps) {
   const env = childEnv(d.env)
   if (d.platform === 'win32') {
     const exe = terminalExe(d)
-    const script = `Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList '-d','${dir.replace(/'/g, "''")}','claude' -PassThru | Select-Object -ExpandProperty Id`
-    const out = String(d.exec('powershell', ['-NoProfile', '-Command', script], { env })).replace(/^\ufeff/, '').trim()
-    if (!/^\d+$/.test(out)) throw new Error('terminal spawn produced no pid')
+    const script = launchScript(exe, ['-d', dir, 'claude'])
+    const out = d.exec('powershell', ['-NoProfile', '-Command', script], { env })
+    if (pidFrom(out) === null) throw new Error('terminal spawn produced no pid')
     return true
   }
   if (d.platform === 'darwin') d.exec('osascript', ['-e', `tell app "Terminal" to do script "cd \\"${dir}\\" && claude"`], { env })
@@ -173,6 +197,6 @@ function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registry
 
 const spawnTab = spawn // back-compat alias
 module.exports = {
-  buildUri, childEnv, spawn, spawnTab, resolveMode,
-  uriOpener, focusOpener, terminalOpener, openWindowOpener, waitForegroundOpener, foregroundScript,
+  buildUri, childEnv, launchScript, pidFrom, spawn, spawnTab, resolveMode,
+  uriOpener, focusOpener, terminalOpener, openWindowOpener, waitForegroundOpener, foregroundScript, terminalExe,
 }

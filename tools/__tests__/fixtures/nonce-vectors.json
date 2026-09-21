@@ -1,0 +1,70 @@
+{
+  "$contract": "contracts-S3.md C9",
+  "provenance": "regex verbatim from C9: ^ctx-rotate:([0-9a-f]{32})$ applied to the TRIMMED first user message, matched only in UserPromptSubmit (SessionStart never sees it per spike-P0-e O2: \"SessionStart (source startup) has no prompt field in 6/6 ss.log lines\").",
+  "regex": "^ctx-rotate:([0-9a-f]{32})$",
+  "hook": "UserPromptSubmit only",
+  "accept": [
+    {
+      "prompt": "ctx-rotate:72ee7ccc1f06678532de71cfca37b36e",
+      "nonce": "72ee7ccc1f06678532de71cfca37b36e"
+    },
+    {
+      "prompt": "ctx-rotate:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "prompt": "ctx-rotate:0123456789abcdef0123456789abcdef",
+      "nonce": "0123456789abcdef0123456789abcdef"
+    }
+  ],
+  "reject": [
+    {
+      "prompt": "ctx-rotate:72EE7CCC1F06678532DE71CFCA37B36E",
+      "reason": "uppercase hex not in [0-9a-f]"
+    },
+    {
+      "prompt": "ctx-rotate:72ee7ccc1f06678532de71cfca37b36e ",
+      "reason": "trailing whitespace before trim would remain if not trimmed; contract says match on trimmed prompt, so this vector is: raw prompt has trailing space, trim() must run first, then match",
+      "trim_first": true,
+      "after_trim_matches": true
+    },
+    {
+      "prompt": "ctx-rotate:72ee7ccc1f06678532de71cfca37b36e\n",
+      "reason": "trailing newline; after trim() this matches, included to test trim-before-match ordering",
+      "trim_first": true,
+      "after_trim_matches": true
+    },
+    {
+      "prompt": "ctx-rotate:72ee7ccc1f06678532de71cfca37b36e please continue",
+      "reason": "trailing text after the nonce, no other text allowed"
+    },
+    {
+      "prompt": "please ctx-rotate:72ee7ccc1f06678532de71cfca37b36e",
+      "reason": "leading text, must be the whole message"
+    },
+    {
+      "prompt": "ctx-rotate:72ee7ccc1f06678532de71cfca37b36",
+      "reason": "31 hex chars, too short"
+    },
+    {
+      "prompt": "ctx-rotate:72ee7ccc1f06678532de71cfca37b36ea",
+      "reason": "33 hex chars, too long"
+    },
+    {
+      "prompt": "ctx-rotate:72ee7ccc1f06678532de71cfca37b3gg",
+      "reason": "non-hex chars gg"
+    },
+    {
+      "prompt": "ctx-rotate:",
+      "reason": "empty nonce"
+    },
+    {
+      "prompt": "",
+      "reason": "empty prompt"
+    },
+    {
+      "prompt": "CTX-ROTATE:72ee7ccc1f06678532de71cfca37b36e",
+      "reason": "wrong case on the literal prefix, regex is case-sensitive"
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "$contract": "contracts-S3.md C10",
+  "provenance": "CLI argv template verbatim from contracts-S3.md C10; F-a (prompt must be the first argv after `claude`, before any variadic flag) from spike-P0-h.md (\"Findings useful for the spec... F-a\") and confirmed by spike-P0-h launch failures hf215c7a3 / launch 2 (--add-dir swallowed the positional prompt). Launcher stdin/stdout contract verbatim from C10.",
+  "cli": {
+    "template": "wt.exe -w new -d <cwd> claude \"ctx-rotate:<nonce>\" --add-dir <run dir> --permission-mode acceptEdits --settings <settings file>",
+    "argv_example": [
+      "wt.exe",
+      "-w",
+      "new",
+      "-d",
+      "C:/tmp/p0-h",
+      "claude",
+      "ctx-rotate:0049672fbb20aaaaaaaaaaaaaaaaaaaa",
+      "--add-dir",
+      "C:/tmp/p0-h/.exovault/runs",
+      "--permission-mode",
+      "acceptEdits",
+      "--settings",
+      "C:/tmp/p0-h/.claude/settings.local.json"
+    ],
+    "prompt_index_after_claude": 0,
+    "rule": "the prompt is the first argv token after the literal \"claude\" token, before any variadic flag such as --add-dir",
+    "bad_argv_example_regression": [
+      "claude",
+      "--add-dir",
+      "C:/tmp/p0-h",
+      "ctx-rotate:0049672fbb20aaaaaaaaaaaaaaaaaaaa"
+    ],
+    "bad_argv_regression_note": "spike-P0-h hf215c7a3: --add-dir is variadic and swallows the positional prompt, so the successor starts with an empty prompt box and no hook fires; this is the exact regression F-a guards against",
+    "fallback_when_wt_absent": "powershell Start-Process claude with the same argv"
+  },
+  "cursor": {
+    "sequence": [
+      "openWindow(dir)",
+      "waitForeground(dir)",
+      "fire URI"
+    ],
+    "forbidden": "uri-target (fixed sleep)",
+    "single_window_guard": {
+      "rule": "more than one Cursor window has the directory open -> refuse",
+      "trigger": "halt:launch_failed",
+      "reason": "multi_window"
+    }
+  },
+  "launcher_resolution_order": [
+    "EXOVAULT_ROTATE_LAUNCHER",
+    "$CLAUDE_PLUGIN_ROOT/tools/rotate.cjs",
+    "~/.claude/plugins/cache/claude-handoff/handoff/<ver>/tools/rotate.cjs (newest ver >= 1.1.0)"
+  ],
+  "launcher_contract": {
+    "stdin": {
+      "host": "cli|cursor",
+      "cwd": "<path>",
+      "run_dir": "<path>",
+      "nonce": "<32 hex>",
+      "settings_path": "<path>|null"
+    },
+    "stdout": {
+      "ok": "boolean",
+      "mode": "string",
+      "pid": "number|null",
+      "error": "string|null"
+    },
+    "exit_code": "0 only on ok:true",
+    "vectors": [
+      {
+        "input": {
+          "host": "cli",
+          "cwd": "C:/tmp/p0-h",
+          "run_dir": "C:/tmp/p0-h/.exovault/runs",
+          "nonce": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+          "settings_path": "C:/tmp/p0-h/.claude/settings.local.json"
+        },
+        "expected_output": {
+          "ok": true,
+          "mode": "terminal",
+          "pid": 25196,
+          "error": null
+        },
+        "expected_exit_code": 0
+      },
+      {
+        "input": {
+          "host": "cli",
+          "cwd": "C:/tmp/p0-h",
+          "run_dir": "C:/tmp/p0-h/.exovault/runs",
+          "nonce": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+          "settings_path": null
+        },
+        "expected_output": {
+          "ok": false,
+          "mode": "terminal",
+          "pid": null,
+          "error": "wt.exe absent, fallback to powershell Start-Process"
+        },
+        "expected_exit_code": 0,
+        "note": "wt.exe missing is a fallback path, not a failure: ok can still be true once Start-Process succeeds; row kept as documentation of the fallback trigger condition"
+      },
+      {
+        "input": {
+          "host": "cursor",
+          "cwd": "C:/tmp/p0-h",
+          "run_dir": "C:/tmp/p0-h/.exovault/runs",
+          "nonce": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7",
+          "settings_path": null
+        },
+        "expected_output": {
+          "ok": false,
+          "mode": "cursor",
+          "pid": null,
+          "error": "halt:launch_failed multi_window"
+        },
+        "expected_exit_code": 1
+      }
+    ]
+  }
+}
