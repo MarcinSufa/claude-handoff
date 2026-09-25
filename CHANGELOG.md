@@ -2,7 +2,7 @@
 
 ## 1.1.1
 
-Skip transcript usage lines without a matching `sessionId` when a session filter is set.
+Skip transcript usage lines without a matching `sessionId` when a session filter is set. Transcripts whose lines lack a `sessionId` now yield no usage when a session filter is passed; without a filter nothing changes.
 
 ## 1.1.0
 

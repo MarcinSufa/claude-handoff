@@ -64,6 +64,12 @@ test('a session filter skips usage lines with missing or null sessionId', () => 
   assert.equal(parsed.tokens, 5)
 })
 
+test('without a session filter, usage lines lacking sessionId are still accepted', () => {
+  const text = [usageLine(5), JSON.stringify({ type: 'assistant', message: { role: 'assistant', usage: { input_tokens: 20 } } })].join('\n')
+  assert.equal(parseContextTokens(text).tokens, 20)
+  assert.equal(parseContextTokens(text, { sessionId: '' }).tokens, 20)
+})
+
 test('lines without usage or of another type are not matches', () => {
   const text = [
     usageLine(100, 's1'),
