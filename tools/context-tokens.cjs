@@ -2,7 +2,7 @@ function usageOf(line, sessionId) {
   let entry
   try { entry = JSON.parse(line) } catch { return null }
   if (!entry || entry.type !== 'assistant' || entry.isSidechain === true) return null
-  if (sessionId && entry.sessionId != null && entry.sessionId !== sessionId) return null
+  if (sessionId && entry.sessionId !== sessionId) return null
   const message = entry.message
   const usage = message && message.usage
   if (!usage || typeof usage !== 'object') return null
