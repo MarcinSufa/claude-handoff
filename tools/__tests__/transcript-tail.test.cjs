@@ -33,6 +33,12 @@ test('small transcript: returns the newest usage line with its absolute byte off
   assert.equal(r.byteOffset, fs.statSync(file).size)
 })
 
+test('a session filter skips newer usage lines with missing or null sessionId', () => {
+  const noSessionId = JSON.stringify({ type: 'assistant', message: { role: 'assistant', usage: { input_tokens: 100 } } })
+  const nullSessionId = JSON.stringify({ type: 'assistant', sessionId: null, message: { role: 'assistant', usage: { input_tokens: 200 } } })
+  assert.equal(readNewestUsage(write([usageLine(5, 's1'), noSessionId, nullSessionId]), { sessionId: 's1', minOffset: 0 }).tokens, 5)
+})
+
 test('a >5 MB transcript with a 2 MB middle line still yields the last line, offset > 0', () => {
   const file = write([
     JSON.stringify({ type: 'user', message: { content: 'a'.repeat(2 * MB) } }),

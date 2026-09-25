@@ -6,11 +6,11 @@ const path = require('node:path')
 const PLUGIN_JSON = path.join(__dirname, '..', '..', '.claude-plugin', 'plugin.json')
 const MARKETPLACE_JSON = path.join(__dirname, '..', '..', '.claude-plugin', 'marketplace.json')
 
-// G-3: plugin.json version 1.1.0, and the marketplace entry agrees (whatever version field that
+// G-3: plugin.json version 1.1.1, and the marketplace entry agrees (whatever version field that
 // file actually carries; read it first, do not assume its shape).
-test('plugin.json version is 1.1.0', () => {
+test('plugin.json version is 1.1.1', () => {
   const plugin = JSON.parse(fs.readFileSync(PLUGIN_JSON, 'utf8'))
-  assert.equal(plugin.version, '1.1.0')
+  assert.equal(plugin.version, '1.1.1')
 })
 
 test('marketplace.json handoff plugin entry version agrees with plugin.json', () => {

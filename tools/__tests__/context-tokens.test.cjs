@@ -57,6 +57,19 @@ test('skips sidechain lines, other sessions, garbage and partial lines', () => {
   assert.equal(parseContextTokens(text, { sessionId: 's1' }).tokens, 100)
 })
 
+test('a session filter skips usage lines with missing or null sessionId', () => {
+  const noSessionId = JSON.stringify({ type: 'assistant', message: { role: 'assistant', usage: { input_tokens: 100 } } })
+  const nullSessionId = JSON.stringify({ type: 'assistant', sessionId: null, message: { role: 'assistant', usage: { input_tokens: 200 } } })
+  const parsed = parseContextTokens([usageLine(5, 's1'), noSessionId, nullSessionId].join('\n'), { sessionId: 's1' })
+  assert.equal(parsed.tokens, 5)
+})
+
+test('without a session filter, usage lines lacking sessionId are still accepted', () => {
+  const text = [usageLine(5), JSON.stringify({ type: 'assistant', message: { role: 'assistant', usage: { input_tokens: 20 } } })].join('\n')
+  assert.equal(parseContextTokens(text).tokens, 20)
+  assert.equal(parseContextTokens(text, { sessionId: '' }).tokens, 20)
+})
+
 test('lines without usage or of another type are not matches', () => {
   const text = [
     usageLine(100, 's1'),
