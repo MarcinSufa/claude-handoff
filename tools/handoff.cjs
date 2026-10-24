@@ -44,11 +44,16 @@ function dispatch({ targetCwd, callerCwd, doc, pending, title, generation, spawn
     scheme: process.env.HANDOFF_URI_SCHEME, prompt: messages.prompt, cwd: spawnCwd, doc, mode, targetCwd,
     registryFailed: registryStatus === 'failed',
   })
+  // ok means the handoff was captured; launched says whether a fresh session was actually opened.
+  // Only a launched handoff may tell the user it is ready (manual mode is the norm on a host with no opener).
+  const launched = spawnResult.ok === true
   return {
-    ok: true, mode, registry: registryStatus, spawn: spawnResult, doc, targetCwd, callerCwd, spawnCwd, title: tabTitle, generation,
+    ok: true, launched, mode, registry: registryStatus, spawn: spawnResult, doc, targetCwd, callerCwd, spawnCwd, title: tabTitle, generation,
     sessionNamePrefix: sessionNamePrefix(spawnCwd),
     resumeMessage: messages.resumeMessage,
-    closeOld: 'Handoff is ready in the fresh session. Close THIS session to finish the handoff.',
+    closeOld: launched
+      ? 'Handoff is ready in the fresh session. Close THIS session to finish the handoff.'
+      : spawnResult.message || `No fresh session was opened. Handoff saved at ${doc}; start a fresh \`claude\` in ${targetCwd} to resume it.`,
   }
 }
 
