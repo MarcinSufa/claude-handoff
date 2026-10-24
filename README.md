@@ -6,7 +6,7 @@
 [![Plugin](https://img.shields.io/badge/Claude%20Code-plugin-purple.svg)](https://docs.claude.com/en/docs/claude-code/plugins)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macOS%20%7C%20linux-lightgrey.svg)](#limits)
 
-Native `/compact` summarizes detail away and keeps the same polluted session. `/handoff` instead has the agent write a structured working-state document, opens a genuinely new session that resumes from it, wakes that session with a cross-session message, and names its tab after the topic. A `PostToolUse` hook watches your 5-hour rate-limit usage and nudges the agent to hand off before the limit hits.
+Native `/compact` summarizes detail away and keeps the same polluted session. `/handoff` instead has the agent write a structured working-state document, opens a genuinely new session that resumes from it, wakes that session with a cross-session message, and names its tab after the topic. A `PostToolUse` hook watches your 5-hour rate-limit usage and nudges the agent to save a checkpoint (a handoff with `spawn: "none"`) that the next session resumes after the limit resets.
 
 ## How it works
 
@@ -62,7 +62,7 @@ Enabled by default. The `PostToolUse` hook reads `rate_limits.five_hour.used_per
 | `HANDOFF_AUTO_SAVE_PERCENT` | `90` | a number (e.g. `85`) or `disabled` |
 | `HANDOFF_URGENT_PERCENT` | `95` | a number or `disabled` |
 
-It is a tripwire, not a capture: a `PostToolUse` hook cannot author the working state, so it asks the agent to run `/handoff`. Where `rate_limits` is absent from the payload (older Claude Code, non Pro/Max plans) the hook silently no-ops. It never blocks a tool call.
+It is a tripwire, not a capture: a `PostToolUse` hook cannot author the working state, so it asks the agent to run `/handoff` with `spawn: "none"`. A fresh session would spend the same 5-hour quota, so the nudge asks for a checkpoint (doc plus pending marker, valid 24 h) that the next session in the project resumes after the limit resets, not for a new session now. Where `rate_limits` is absent from the payload (older Claude Code, non Pro/Max plans) the hook silently no-ops. It never blocks a tool call.
 
 Spawn modes (input JSON field `spawn`, overrides `HANDOFF_SPAWN`):
 
