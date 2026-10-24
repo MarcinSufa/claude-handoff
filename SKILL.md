@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Hand off the current Claude Code session to a fresh-context session without losing state. Works in BOTH the terminal CLI and the Cursor/VS Code extension. Use when the context is getting full, when the user types /handoff, or asks to "hand off", "fresh session", "clean context", "continue in a new session", or "pass this to a new agent". Captures a structured working-state doc, opens a fresh session (new tab in the extension, new terminal in the CLI) that auto-resumes it, wakes it with a cross-session message, and names the new tab "<topic> #<generation>".
+description: "Hand off the current Claude Code session to a fresh-context session without losing state: you write a structured working-state doc (HANDOFF.md), the glue opens a new session that resumes from it and names it \"<topic> #<n>\". Openers: a herdr tab on a Linux terminal server (HERDR_ENV=1), a new tab in the Cursor/VS Code extension, or a new terminal for the CLI (extension and terminal live-tested on Windows only); with no opener it saves the doc and says how to resume. Use on explicit user intent: \"/handoff\", \"hand off\", \"continue in a fresh session\", \"przekaż sesję\", \"nowa sesja z czystym kontekstem\", \"odpal świeżą sesję\", or when the usage nudge asks for a checkpoint. With the exo-compact plugin active, \"context is getting full\" alone is not a trigger: exo-compact handles that."
 ---
 
 # /handoff: clean-context session handoff

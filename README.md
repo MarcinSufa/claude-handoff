@@ -1,6 +1,6 @@
 # claude-handoff
 
-> **Clean-context handoff for Claude Code.** Move the current session into a fresh-context session with zero information loss, in both the terminal CLI and the Cursor / VS Code extension.
+> **Clean-context handoff for Claude Code.** Move the current session into a fresh-context session with zero information loss: a new herdr tab on a Linux terminal server, a new tab in the Cursor / VS Code extension, or a new terminal for the CLI (see [Verified live](#verified-live) for what has been run end to end).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Plugin](https://img.shields.io/badge/Claude%20Code-plugin-purple.svg)](https://docs.claude.com/en/docs/claude-code/plugins)
@@ -43,7 +43,7 @@ The installer is idempotent, keeps a temporary backup of `settings.json` (file m
 
 ## Usage
 
-Type `/handoff` (or "hand off", "fresh session", "clean context", "continue in a new session") when the context is getting full. The agent authors the working state, refuses if it cannot name a goal and a next step, runs the glue, wakes the fresh session and tells you: **"Handoff is ready in the fresh session `<title>`, close this one to finish."** Closing the old session is the one manual step.
+Type `/handoff` (or "hand off", "continue in a fresh session", "przekaż sesję", "nowa sesja z czystym kontekstem", "odpal świeżą sesję") when you want a clean context. With the exo-compact plugin active, a full context alone is not a reason to hand off: exo-compact cuts the context itself, so hand off only when you ask for it. The agent authors the working state, refuses if it cannot name a goal and a next step, runs the glue, wakes the fresh session and tells you: **"Handoff is ready in the fresh session `<title>`, close this one to finish."** Closing the old session is the one manual step. When no session could be opened (the result has `launched: false`), it tells you how to start one instead and does not claim the handoff is ready.
 
 Name the current session as soon as its topic is clear, so the tab is findable among many:
 
