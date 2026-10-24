@@ -3,7 +3,7 @@
 //
 // A deterministic TRIPWIRE, not a capture: a PostToolUse hook can inject additionalContext but cannot
 // author the 9-field state (that needs the agent): so when the 5-hour usage crosses a threshold this
-// nudges the agent to run /handoff. Enabled by default (90% / 95%); set HANDOFF_AUTO_SAVE_PERCENT or
+// nudges the agent to checkpoint with /handoff (spawn "none") and resume after the limit resets. Enabled by default (90% / 95%); set HANDOFF_AUTO_SAVE_PERCENT or
 // HANDOFF_URGENT_PERCENT to a number to retune, or to "disabled" to turn a level off.
 //
 // Defensive: rate_limits.five_hour.used_percentage is documented for statusline stdin and claimed for
@@ -15,19 +15,23 @@ const { resolveProjectRoot, handoffPaths } = require(path.join(__dirname, '..', 
 const { parsePercent, resolveThresholds, evaluate } = require(path.join(__dirname, '..', 'tools', 'usage-threshold.cjs'))
 const { readWarnedLevel, markWarned } = require(path.join(__dirname, '..', 'tools', 'usage-flag.cjs'))
 
+// A fresh session draws on the same 5-hour quota, so the nudge asks for a CHECKPOINT (handoff with
+// spawn "none": doc + pending marker, no new session), resumed by the next session in this project.
 function message(level, percent) {
   const pct = `${percent}%`
   if (level === 'urgent') {
     return [
-      `🚨 You are at ${pct} of your 5-hour rate limit and may run out mid-task.`,
-      'Run the /handoff skill NOW to capture your working state into a fresh session before you are cut off,',
-      'then tell the user to close this session. (Durable memory remains your backup safety net.)',
+      `🚨 You are at ${pct} of your 5-hour rate limit and may be cut off mid-task.`,
+      'A fresh session draws on the same limit, so do not open one now: save a checkpoint instead.',
+      'Run the /handoff skill with spawn "none" (it writes HANDOFF.md and a pending marker in this project),',
+      'then tell the user that the next session started in this project after the limit resets resumes it',
+      '(the marker stays valid for 24 h). Durable memory remains your backup safety net.',
     ].join(' ')
   }
   return [
-    `⚠️ You are at ${pct} of your 5-hour rate limit.`,
-    'This is a good moment to run the /handoff skill: capture your working state so it can resume cleanly',
-    'in a fresh session before you hit the limit. Finish the current step first if it is nearly done.',
+    `⚠️ You are at ${pct} of your 5-hour rate limit. A fresh session would draw on the same limit,`,
+    'so a handoff now does not buy time. Once the current step is done, save a checkpoint: run the /handoff skill',
+    'with spawn "none", so the work resumes in the next session started in this project after the limit resets.',
   ].join(' ')
 }
 

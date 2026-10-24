@@ -21,10 +21,11 @@ function payload(over = {}) {
     constraints: [], gotchas: [], openQuestions: [], keepOnFail: [], verify: [], ...over,
   }
 }
+// HERDR_ENV is cleared so a run inside a herdr session never opens a real herdr tab.
 function run(args, options = {}) {
   return JSON.parse(execFileSync('node', [HANDOFF, ...args], {
     cwd: options.cwd,
-    env: { ...process.env, HANDOFF_HOME: options.home, ...options.env },
+    env: { ...process.env, HERDR_ENV: '', HOME: options.home, USERPROFILE: options.home, HANDOFF_HOME: options.home, ...options.env },
     input: options.input == null ? '' : JSON.stringify(options.input), encoding: 'utf8',
   }))
 }
@@ -32,7 +33,7 @@ function runAsync(args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnProcess('node', [HANDOFF, ...args], {
       cwd: options.cwd,
-      env: { ...process.env, HANDOFF_HOME: options.home, ...options.env },
+      env: { ...process.env, HERDR_ENV: '', HOME: options.home, USERPROFILE: options.home, HANDOFF_HOME: options.home, ...options.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''; let stderr = ''; let firstEntryAt = null
@@ -70,6 +71,11 @@ test('spawn none reports mode and paths without writing a registry entry', () =>
   assert.equal(out.targetCwd, cwd)
   assert.equal(out.callerCwd, cwd)
   assert.equal(fs.existsSync(path.join(registryHome, 'pending')), false)
+  // Nothing was opened, so the result must not claim a ready fresh session.
+  assert.equal(out.launched, false)
+  assert.equal(out.spawn.mode, 'manual')
+  assert.doesNotMatch(out.closeOld, /ready/i)
+  assert.equal(out.closeOld, out.spawn.message)
 })
 
 test('same-window message helper names the absolute handoff and target and leads with the tab title', () => {
@@ -325,6 +331,7 @@ test('target-launching modes resolve the spawn directory to the target, same-win
   assert.strictEqual(noneOut.spawnCwd, targetCwd)
   assert.strictEqual(noneOut.spawn.mode, 'manual')
   assert.strictEqual(noneOut.spawn.ok, false)
+  assert.strictEqual(noneOut.launched, false)
 
   // uriOpener and the terminal fallback both point at nonexistent targets so same-window never
   // opens a real URI handler or terminal either.

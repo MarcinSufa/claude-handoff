@@ -7,7 +7,7 @@ test('default mode is same-window and fires uri without focusing', () => {
   delete process.env.HANDOFF_SPAWN
   try {
     const calls = []
-    const r = spawn({ scheme: 'cursor', prompt: 'hi', cwd: '/p', openers: {
+    const r = spawn({ scheme: 'cursor', prompt: 'hi', cwd: '/p', env: {}, openers: {
       focus: (cwd) => { calls.push('focus:' + cwd) },
       uri: () => { calls.push('uri'); return true },
       terminal: () => { calls.push('terminal'); return true },

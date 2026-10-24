@@ -19,3 +19,14 @@ test('hooks.json keeps PostToolUse -> hooks/usage-monitor.cjs', () => {
   const commands = (hooks.hooks.PostToolUse || []).flatMap((g) => g.hooks).map((h) => h.command)
   assert.ok(commands.some((c) => c.includes('usage-monitor.cjs')), 'PostToolUse -> usage-monitor.cjs must remain registered')
 })
+
+test('every hook in hooks.json has a timeout, matching the installer', () => {
+  const { TIMEOUTS } = require('../install.cjs')
+  const hooks = JSON.parse(fs.readFileSync(HOOKS_JSON, 'utf8')).hooks
+  for (const [event, groups] of Object.entries(hooks)) {
+    for (const h of groups.flatMap((g) => g.hooks)) {
+      assert.equal(typeof h.timeout, 'number', `${event}: ${h.command}`)
+      assert.equal(h.timeout, TIMEOUTS[event], event)
+    }
+  }
+})

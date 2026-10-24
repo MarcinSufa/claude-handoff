@@ -58,3 +58,14 @@ test('malformed stdin → empty output, fail-open (no throw)', () => {
   const out = execFileSync('node', [HOOK], { input: '{not json', encoding: 'utf8', env: cleanEnv() })
   assert.equal(out.trim(), '')
 })
+
+test('the nudge asks for a checkpoint (spawn none), not a fresh session on the same quota', () => {
+  for (const pct of [92, 96]) {
+    const root = repo()
+    const out = JSON.parse(run({ cwd: root, session_id: `ck-${pct}`, rate_limits: { five_hour: { used_percentage: pct } } }))
+    const text = out.hookSpecificOutput.additionalContext
+    assert.match(text, /spawn "none"/)
+    assert.match(text, /same limit/)
+    assert.match(text, /resets/)
+  }
+})

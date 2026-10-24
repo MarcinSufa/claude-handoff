@@ -49,3 +49,19 @@ test('installAll wires BOTH SessionStart and PostToolUse, preserving existing ho
   assert.equal(pt.filter((c) => c.includes('usage-monitor.cjs')).length, 1) // not duplicated
   assert.ok(!fs.existsSync(f + '.bak'))
 })
+
+test('installAll writes a timeout on every hook and adds one to an installed hook that lacks it', () => {
+  const f = tmpSettings({ hooks: {
+    SessionStart: [{ hooks: [{ type: 'command', command: 'node "/abs/sessionstart-handoff.cjs"' }] }],
+    PostToolUse: [{ matcher: '', hooks: [{ type: 'command', command: 'other-monitor.cjs' }] }],
+  } })
+  const r = installAll(f, { sessionStart: '/abs/sessionstart-handoff.cjs', postToolUse: '/abs/usage-monitor.cjs' })
+  assert.equal(r.sessionStart.added, false)
+  assert.equal(r.sessionStart.timeoutSet, true)
+  const s = JSON.parse(fs.readFileSync(f, 'utf8'))
+  const ss = s.hooks.SessionStart.flatMap((g) => g.hooks).find((h) => h.command.includes('sessionstart-handoff.cjs'))
+  const pt = s.hooks.PostToolUse.flatMap((g) => g.hooks)
+  assert.equal(ss.timeout, 10)
+  assert.equal(pt.find((h) => h.command.includes('usage-monitor.cjs')).timeout, 5)
+  assert.equal(pt.find((h) => h.command === 'other-monitor.cjs').timeout, undefined) // not ours: untouched
+})

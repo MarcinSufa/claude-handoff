@@ -1,6 +1,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
+const { herdrActive, herdrLaunch } = require('./herdr.cjs')
 
 function buildUri(scheme, prompt) {
   return `${scheme || 'cursor'}://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}`
@@ -61,9 +62,18 @@ function focusOpener(cwd) {
   else execFileSync(editorExe(), [cwd], { env, stdio: 'ignore', timeout: 10000 })
   return true
 }
+// POSIX single-quoting: safe for any directory name, including quotes, spaces, $ and backticks.
+function quoteShell(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`
+}
+
+function quoteAppleScript(value) {
+  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
 function terminalExe(deps) {
   if (deps.env.HANDOFF_TERMINAL_EXE) return deps.env.HANDOFF_TERMINAL_EXE
-  const candidate = path.join(deps.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
+  const candidate = path.win32.join(deps.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
   return deps.existsSync(candidate) ? candidate : 'wt.exe'
 }
 
@@ -80,9 +90,15 @@ function terminalOpener(cwd, deps) {
     if (pidFrom(out) === null) throw new Error('terminal spawn produced no pid')
     return true
   }
-  if (d.platform === 'darwin') d.exec('osascript', ['-e', `tell app "Terminal" to do script "cd \\"${dir}\\" && claude"`], { env })
-  else d.exec('x-terminal-emulator', ['-e', `bash -lc 'cd "${dir}" && claude'`], { env })
+  const shellLine = `cd ${quoteShell(dir)} && claude`
+  if (d.platform === 'darwin') d.exec('osascript', ['-e', `tell app "Terminal" to do script ${quoteAppleScript(shellLine)}`], { env })
+  else d.exec('x-terminal-emulator', ['-e', `bash -lc ${quoteShell(shellLine)}`], { env })
   return true
+}
+// A new herdr tab running claude with the resume prompt; waits until herdr reports it working.
+function herdrOpener(cwd, prompt, label, deps) {
+  const env = childEnv((deps && deps.env) || process.env)
+  return herdrLaunch({ cwd, label, args: prompt ? [prompt] : [], confirm: true, deps: { ...(deps || {}), env } })
 }
 function openWindowOpener(cwd) {
   const env = childEnv()
@@ -132,33 +148,52 @@ function waitForegroundOpener(cwd) {
 function sleepMs(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }
 
 const FALLBACK = (doc) => `Handoff saved${doc ? ` at ${doc}` : ''}. Start a fresh \`claude\` in this directory (it will auto-resume), then close this session.`
+const HERDR_STUCK = (r, dir, doc) => `A herdr tab was opened in ${dir}${r.agent ? ` (agent ${r.agent})` : ''}, but Claude did not start working there (${r.error || 'unknown state'}). Look at it with \`herdr agent read ${r.agent || '<agent>'}\`; if it is stuck, start a fresh \`claude\` in ${dir} yourself: the handoff${doc ? ` at ${doc}` : ''} stays pending and resumes there.`
 const TARGET_FALLBACK = (doc, targetCwd) => `Handoff saved${doc ? ` at ${doc}` : ''}. The registry entry could not be written, so cd into ${targetCwd} and start a fresh \`claude\` there, then close this session.`
 
 // Legacy env/field values collapse onto uri-target so old HANDOFF_SPAWN settings keep working.
-function resolveMode(mode) {
-  const raw = mode || process.env.HANDOFF_SPAWN || 'same-window'
+// Inside herdr (HERDR_ENV=1) the default is a herdr tab: no editor URI or desktop terminal exists there.
+function resolveMode(mode, env) {
+  const e = env || process.env
+  const raw = mode || e.HANDOFF_SPAWN || (herdrActive(e) ? 'herdr' : 'same-window')
   return raw === 'auto' || raw === 'uri' ? 'uri-target' : raw
 }
 
-function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registryFailed, targetCwd }) {
+function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registryFailed, targetCwd, title, env }) {
   const o = openers || {
     focus: (c) => focusOpener(c),
     uri: (s, p) => uriOpener(buildUri(s, p)),
     terminal: (c) => terminalOpener(c),
     openWindow: (c) => openWindowOpener(c),
     waitForeground: (c) => waitForegroundOpener(c),
+    herdr: (c, p, l) => herdrOpener(c, p, l),
   }
-  const m = resolveMode(mode)
+  const e = env || process.env
+  const m = resolveMode(mode, e)
   const dir = cwd || process.cwd()
   const delay = focusDelayMs == null ? (openers ? 0 : 3000) : focusDelayMs
-  const fireUri = () => { o.uri(scheme || process.env.HANDOFF_URI_SCHEME || 'cursor', prompt) }
-  const tryTerm = () => { o.terminal(dir); return { ok: true, mode: 'terminal' } }
+  const fireUri = () => { o.uri(scheme || e.HANDOFF_URI_SCHEME || 'cursor', prompt) }
+  // Throws when no herdr tab could be made; once a tab exists it returns, launched or not, so no
+  // second session gets opened elsewhere.
+  const tryHerdr = () => {
+    if (typeof o.herdr !== 'function') throw new Error('no herdr opener')
+    const r = o.herdr(dir, prompt, title || 'handoff') || {}
+    const info = { agent: r.agent || null, paneId: r.paneId || null, status: r.status || null, trustAccepted: !!r.trustAccepted }
+    if (r.ok) return { ok: true, mode: 'herdr', ...info }
+    return { ok: false, mode: 'herdr', ...info, message: HERDR_STUCK(r, dir, doc) }
+  }
+  const tryTerm = () => {
+    if (herdrActive(e) && typeof o.herdr === 'function') { try { return tryHerdr() } catch { /* no tab: try a desktop terminal */ } }
+    o.terminal(dir); return { ok: true, mode: 'terminal' }
+  }
   const fb = () => ({
     ok: false, mode: 'manual',
     message: m === 'same-window' && registryFailed && targetCwd ? TARGET_FALLBACK(doc, targetCwd) : FALLBACK(doc),
   })
 
   if (m === 'none') return fb()
+
+  if (m === 'herdr') { try { return tryHerdr() } catch { return fb() } }
 
   if (m === 'same-window') {
     try { fireUri(); return { ok: true, mode: 'same-window' } } catch { /* fall through */ }
@@ -198,5 +233,6 @@ function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registry
 const spawnTab = spawn // back-compat alias
 module.exports = {
   buildUri, childEnv, launchScript, pidFrom, spawn, spawnTab, resolveMode,
-  uriOpener, focusOpener, terminalOpener, openWindowOpener, waitForegroundOpener, foregroundScript, terminalExe,
+  uriOpener, focusOpener, terminalOpener, openWindowOpener, waitForegroundOpener, foregroundScript, terminalExe, quoteShell,
+  herdrOpener,
 }

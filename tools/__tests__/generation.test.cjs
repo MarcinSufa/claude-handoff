@@ -1,6 +1,9 @@
 const { test } = require('node:test'); const assert = require('node:assert')
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path')
 const { execFileSync } = require('node:child_process')
+// Keep the durable log and registry out of the real home: capture() appends to <HANDOFF_HOME>/index.jsonl.
+const TEST_HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ho-home-')))
+process.env.HOME = TEST_HOME; process.env.USERPROFILE = TEST_HOME; process.env.HANDOFF_HOME = path.join(TEST_HOME, '.claude', 'handoff')
 const { handoffPaths } = require('../paths.cjs')
 const { readMarker, writeMarker } = require('../marker.cjs')
 const { capture } = require('../capture.cjs')

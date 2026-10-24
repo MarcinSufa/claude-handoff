@@ -4,6 +4,7 @@ const { execFileSync } = require('node:child_process')
 const {
   buildUri, childEnv, launchScript, pidFrom, terminalExe, uriOpener, openWindowOpener, waitForegroundOpener,
 } = require('./spawn-tab.cjs')
+const { herdrActive, herdrLaunch } = require('./herdr.cjs')
 
 const ROTATE_PROMPT_RE = /^ctx-rotate:[0-9a-f]{32}$/
 
@@ -56,14 +57,31 @@ function defaults() {
   }
 }
 
+// Inside herdr on Linux/macOS: a new herdr tab instead of a foreground `claude` that has no terminal.
+// The exo-vault hook gives the launcher 30 s, so this does not wait for the session to start working.
+function herdrRotate(input, d, claudeArgs) {
+  try {
+    const r = herdrLaunch({
+      cwd: input.cwd, label: 'ctx-rotate', args: claudeArgs, confirm: false,
+      deps: { exec: d.exec, env: childEnv(d.env), startTimeoutMs: 15000 },
+    })
+    return r.ok
+      ? { ok: true, mode: 'herdr', pid: null, error: null }
+      : { ok: false, mode: 'herdr', pid: null, error: 'halt:launch_failed herdr_not_started' }
+  } catch {
+    return { ok: false, mode: 'herdr', pid: null, error: 'halt:launch_failed herdr_unavailable' }
+  }
+}
+
 function cliRotate(input, d) {
   const env = childEnv(d.env)
   const configured = d.env.HANDOFF_TERMINAL_EXE
-  const candidate = path.join(d.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
+  const candidate = path.win32.join(d.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
   const hasWt = Boolean(configured || d.existsSync(candidate))
   const exe = hasWt ? terminalExe(d) : 'claude'
   const argv = buildCliArgv({ exe: hasWt ? exe : 'wt.exe', cwd: input.cwd, runDir: input.run_dir, nonce: input.nonce, settingsPath: input.settings_path })
   const claudeArgs = argv.slice(6)
+  if (d.platform !== 'win32' && herdrActive(d.env)) return herdrRotate(input, d, claudeArgs)
   const output = d.platform === 'win32'
     ? d.exec('powershell', ['-NoProfile', '-Command', hasWt ? launchScript(exe, argv.slice(1)) : launchScript('claude', claudeArgs, { workingDirectory: input.cwd })], { env })
     : d.exec('claude', claudeArgs, { env })

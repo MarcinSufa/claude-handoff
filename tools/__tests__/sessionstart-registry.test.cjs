@@ -21,7 +21,8 @@ function home() { return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), '
 function run(input, registryHome) {
   return execFileSync('node', [HOOK], {
     input: JSON.stringify(input), encoding: 'utf8',
-    env: { ...process.env, HANDOFF_HOME: registryHome },
+    // The ceiling keeps the non-repo caller cases honest on a host with a stray .git in /tmp.
+    env: { ...process.env, HANDOFF_HOME: registryHome, GIT_CEILING_DIRECTORIES: fs.realpathSync(os.tmpdir()) },
   })
 }
 function setup(over = {}) {
