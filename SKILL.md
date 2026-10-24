@@ -20,7 +20,7 @@ When invoked:
    JSON
    ```
 
-   `spawn` is optional (omit it for the same-window default) and `callerCwd` is set to the workspace root of the CURRENT window, not the target project the handoff is about.
+   `spawn` is optional (omit it for the default: `herdr` inside herdr, else same-window) and `callerCwd` is set to the workspace root of the CURRENT window, not the target project the handoff is about.
 
    CLAUDE_PLUGIN_ROOT is set when the skill runs as a plugin; the default covers a copy in the user skills directory. If the skill lives elsewhere, substitute the directory containing this SKILL.md.
 
