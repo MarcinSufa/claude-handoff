@@ -33,7 +33,7 @@ When invoked:
 
 Resume is automatic: the fresh session's `SessionStart` hook injects a pointer and auto-sends the first message. The URI prompt is a backstop for when the hook is unavailable; both start with the tab title.
 
-**Same-window is the default, so there is nothing to stay put for.** The URI fires immediately, with no focus step and no delay, so it lands in whichever window you were already talking to; the new session starts there (`callerCwd`), not in the target project. That is why its first message tells it to `EnterWorktree` (with `path`, never `name`) into the target root before reading `HANDOFF.md`, and why the "wrong window" check accepts either `callerCwd` or `targetCwd` as correct. Ask for `spawn:"window"` or `spawn:"terminal"` only when the user asks for a separate window or a terminal; a genuinely parallel handoff (two spawns within about 20 s) can still land in the wrong tab, since spawns are not queued.
+**Same-window is the default, so there is nothing to stay put for.** The URI fires immediately, with no focus step and no delay, so it lands in whichever window you were already talking to; the new session starts there (`callerCwd`), not in the target project. That is why its first message tells it to `EnterWorktree` (with `path`, never `name`) into the target root before reading `HANDOFF.md`, and why the "wrong window" check accepts either `callerCwd` or `targetCwd` as correct. When `callerCwd` is the target itself, both are skipped: the message just names the doc and the one folder. Ask for `spawn:"window"` or `spawn:"terminal"` only when the user asks for a separate window or a terminal; a genuinely parallel handoff (two spawns within about 20 s) can still land in the wrong tab, since spawns are not queued.
 
 Same-window still works when the current window's folder is not a git repository (`EnterWorktree` needs one): the message instead tells the fresh session to work on absolute paths under the target root, `cd`-ing into it for every shell command instead of entering a worktree.
 
@@ -62,7 +62,7 @@ Same-window still works when the current window's folder is not a git repository
 ## Notes
 - Path anchor is **cwd to nearest `.git`** (never `CLAUDE_PROJECT_DIR`), so the write-path and read-path can't diverge.
 - Secrets (DB URLs with passwords, API keys, tokens) are redacted before any write.
-- The handoff doc is your own prior notes: verify against the live repo before destructive actions; the skill never auto-runs its `verify`/`nextStep` commands.
+- The handoff doc is your own prior notes. The glue never runs its `verify`/`nextStep` commands itself; the fresh session checks the doc against the live repo, continues from `nextStep` on its own, and asks the user only before a destructive or irreversible step.
 - Env knobs: `HANDOFF_SPAWN` (`same-window` | `window` | `terminal` | `none` | `uri-target`, legacy `auto`/`uri` map to `uri-target`), `HANDOFF_URI_SCHEME` (default `cursor`), `HANDOFF_EDITOR_EXE` (editor binary used to focus or open the project window), `HANDOFF_TERMINAL_EXE` (terminal binary for `terminal` mode, default `wt.exe` from WindowsApps when present), `HANDOFF_HOME` (registry root and the append-only log `index.jsonl`, default `~/.claude/handoff`).
 - A stale pending marker is consumed by the NEXT session that starts in that project, whoever opens it. If a spawn ever fails, the next tab you open there will resume the handoff.
 - Two handoffs fired within about 20 s of each other can still land in the wrong tab: spawns are not queued.

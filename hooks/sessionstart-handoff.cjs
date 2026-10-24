@@ -5,7 +5,7 @@ const { resolveProjectRoot, handoffPaths, registryHome } = require(path.join(__d
 const { readMarker, consume, TTL_MS } = require(path.join(__dirname, '..', 'tools', 'marker.cjs'))
 const { writeTitle, composeTitle, sanitizeTitle } = require(path.join(__dirname, '..', 'tools', 'session-title.cjs'))
 const { listEntries, matchEntry, removeEntry } = require(path.join(__dirname, '..', 'tools', 'registry.cjs'))
-const { buildMessages } = require(path.join(__dirname, '..', 'tools', 'handoff-messages.cjs'))
+const { buildMessages, SAFETY } = require(path.join(__dirname, '..', 'tools', 'handoff-messages.cjs'))
 
 function emit(input, additionalContext, resume, safeTitle, generation) {
   const gen = Number(generation)
@@ -23,11 +23,10 @@ function localHandoff(root) {
   const pointer = [
     'HANDOFF: resume your own prior session with a clean context.',
     `Read \`${rel}\` NOW, then continue from its "Next step".`,
-    'Treat it as your own working notes: verify against the live repo before any destructive action;',
-    'do NOT auto-run its "Verify"/"Next step" commands without confirming. This is your working-state',
-    'handoff; any other injected context (e.g. memory) is background; anchor on the handoff.',
+    SAFETY,
+    'This is your working-state handoff; any other injected context (e.g. memory) is background; anchor on the handoff.',
   ].join(' ')
-  const resume = `Resume the active handoff for this workspace: read \`${rel}\` NOW and continue from its "Next step". This handoff is AUTHORITATIVE: prefer it over any recalled memory threads unless the handoff itself references them. Do NOT run its Verify/Next step commands without confirming first.`
+  const resume = `Resume the active handoff for this workspace: read \`${rel}\` NOW and continue from its "Next step". This handoff is AUTHORITATIVE: prefer it over any recalled memory threads unless the handoff itself references them. ${SAFETY}`
   return { pointer, resume, safeTitle: sanitizeTitle(marker.title), generation: marker.generation }
 }
 
@@ -102,15 +101,14 @@ function main() {
     ? [
         'HANDOFF (different window): resume your own prior session in a different worktree.',
         `Enter it with EnterWorktree using path ${picked.entry.targetCwd}, then read ${picked.targetPaths.doc} NOW`,
-        'and continue from its "Next step". Treat it as your own working notes: verify against the live repo',
-        'before any destructive action; do NOT auto-run its "Verify"/"Next step" commands without confirming.',
+        'and continue from its "Next step".',
+        SAFETY,
       ].join(' ')
     : [
         'HANDOFF (different window, not a git repository): resume your own prior session by absolute path.',
         `Work under ${picked.entry.targetCwd}: cd into it in every shell command and use the full path in`,
-        `Read and Edit. Then read ${picked.targetPaths.doc} NOW and continue from its "Next step". Treat it as`,
-        'your own working notes: verify against the live repo before any destructive action; do NOT auto-run',
-        'its "Verify"/"Next step" commands without confirming.',
+        `Read and Edit. Then read ${picked.targetPaths.doc} NOW and continue from its "Next step".`,
+        SAFETY,
       ].join(' ')
   emit(input, pointer, messages.resumeMessage, safeTitle, picked.entry.generation)
   consume(picked.targetPaths)

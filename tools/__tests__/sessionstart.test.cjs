@@ -43,3 +43,16 @@ test('marker title that is empty after cleaning gets no prefix', () => {
   const msg = JSON.parse(run(root)).hookSpecificOutput.initialUserMessage
   assert.ok(msg.startsWith('Resume the active handoff'), msg)
 })
+
+test('local resume text does not both continue from and forbid the Next step', () => {
+  const root = repo(); const p = handoffPaths(root)
+  fs.mkdirSync(p.dir, { recursive: true }); fs.writeFileSync(p.doc, '# Handoff')
+  writeMarker(p, { schema: 'handoff/v1', createdAt: new Date().toISOString(), doc: p.doc, nonce: 'n', title: 'no contradiction', generation: 1 })
+  const out = JSON.parse(execFileSync('node', [HOOK], { input: JSON.stringify({ session_id: 's', source: 'startup', cwd: root }), encoding: 'utf8' }))
+  const { additionalContext, initialUserMessage } = out.hookSpecificOutput
+  for (const text of [additionalContext, initialUserMessage]) {
+    assert.match(text, /continue from its "Next step"/)
+    assert.match(text, /only before a destructive or irreversible step/)
+    assert.doesNotMatch(text, /without confirming|Do NOT (auto-)?run/i)
+  }
+})
