@@ -24,7 +24,7 @@ function payload(over = {}) {
 function run(args, options = {}) {
   return JSON.parse(execFileSync('node', [HANDOFF, ...args], {
     cwd: options.cwd,
-    env: { ...process.env, HANDOFF_HOME: options.home, ...options.env },
+    env: { ...process.env, HOME: options.home, USERPROFILE: options.home, HANDOFF_HOME: options.home, ...options.env },
     input: options.input == null ? '' : JSON.stringify(options.input), encoding: 'utf8',
   }))
 }
@@ -32,7 +32,7 @@ function runAsync(args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnProcess('node', [HANDOFF, ...args], {
       cwd: options.cwd,
-      env: { ...process.env, HANDOFF_HOME: options.home, ...options.env },
+      env: { ...process.env, HOME: options.home, USERPROFILE: options.home, HANDOFF_HOME: options.home, ...options.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''; let stderr = ''; let firstEntryAt = null

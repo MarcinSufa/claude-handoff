@@ -1,5 +1,8 @@
 const { test } = require('node:test'); const assert = require('node:assert')
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path')
+// Keep the durable log and registry out of the real home: capture() appends to <HANDOFF_HOME>/index.jsonl.
+const TEST_HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ho-home-')))
+process.env.HOME = TEST_HOME; process.env.USERPROFILE = TEST_HOME; process.env.HANDOFF_HOME = path.join(TEST_HOME, '.claude', 'handoff')
 const { handoffPaths } = require('../paths.cjs')
 const { readMarker } = require('../marker.cjs')
 const { capture } = require('../capture.cjs')
@@ -64,4 +67,14 @@ test('a .gitignore that is a directory does not break capture after the doc and 
   assert.equal(r.ok, true)
   assert.equal(r.gitignore, 'skipped')
   assert.ok(fs.existsSync(p.doc)); assert.ok(fs.existsSync(p.pending))
+})
+
+test('the durable log goes under HANDOFF_HOME, never the real ~/.claude/handoffs', () => {
+  const root = repo()
+  capture(JSON.stringify({ ...good, goal: 'log isolation check' }), { root })
+  const log = path.join(process.env.HANDOFF_HOME, 'index.jsonl')
+  assert.equal(require('../memory.cjs').logPath(), log)
+  const last = fs.readFileSync(log, 'utf8').trim().split('\n').pop()
+  assert.equal(JSON.parse(last).goal, 'log isolation check')
+  assert.equal(fs.existsSync(path.join(TEST_HOME, '.claude', 'handoffs')), false)
 })

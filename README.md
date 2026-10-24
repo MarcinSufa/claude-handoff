@@ -80,7 +80,7 @@ Spawn modes (input JSON field `spawn`, overrides `HANDOFF_SPAWN`):
 | `HANDOFF_URI_SCHEME` | `cursor` | URI scheme used to open the extension (`vscode` for VS Code) |
 | `HANDOFF_EDITOR_EXE` | auto-detected | editor binary used to focus or open the project window |
 | `HANDOFF_TERMINAL_EXE` | auto-detected (win32: `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe` when it exists, else `wt.exe`) | terminal binary used by `terminal` mode |
-| `HANDOFF_HOME` | `~/.claude/handoff` | root of the pending registry (`<HANDOFF_HOME>/pending/<sha1 of the target folder>.json`) that lets the resume hook find a same-window handoff's marker from the caller window |
+| `HANDOFF_HOME` | `~/.claude/handoff` | root of the pending registry (`<HANDOFF_HOME>/pending/<sha1 of the target folder>.json`) that lets the resume hook find a same-window handoff's marker from the caller window, plus the append-only handoff log `<HANDOFF_HOME>/index.jsonl` (before 1.2.0 the log was `~/.claude/handoffs/index.jsonl` and ignored this setting) |
 
 ## Verified live
 
