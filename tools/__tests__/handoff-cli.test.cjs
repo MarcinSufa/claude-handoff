@@ -21,10 +21,11 @@ function payload(over = {}) {
     constraints: [], gotchas: [], openQuestions: [], keepOnFail: [], verify: [], ...over,
   }
 }
+// HERDR_ENV is cleared so a run inside a herdr session never opens a real herdr tab.
 function run(args, options = {}) {
   return JSON.parse(execFileSync('node', [HANDOFF, ...args], {
     cwd: options.cwd,
-    env: { ...process.env, HOME: options.home, USERPROFILE: options.home, HANDOFF_HOME: options.home, ...options.env },
+    env: { ...process.env, HERDR_ENV: '', HOME: options.home, USERPROFILE: options.home, HANDOFF_HOME: options.home, ...options.env },
     input: options.input == null ? '' : JSON.stringify(options.input), encoding: 'utf8',
   }))
 }
@@ -32,7 +33,7 @@ function runAsync(args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnProcess('node', [HANDOFF, ...args], {
       cwd: options.cwd,
-      env: { ...process.env, HOME: options.home, USERPROFILE: options.home, HANDOFF_HOME: options.home, ...options.env },
+      env: { ...process.env, HERDR_ENV: '', HOME: options.home, USERPROFILE: options.home, HANDOFF_HOME: options.home, ...options.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''; let stderr = ''; let firstEntryAt = null

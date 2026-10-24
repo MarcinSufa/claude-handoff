@@ -41,7 +41,7 @@ function dispatch({ targetCwd, callerCwd, doc, pending, title, generation, spawn
   const spawnCwd = mode === 'same-window' ? callerCwd : targetCwd
   const registryStatus = writeRegistryEntry({ mode, targetCwd, callerCwd, doc, pending, title, generation })
   const spawnResult = spawn({
-    scheme: process.env.HANDOFF_URI_SCHEME, prompt: messages.prompt, cwd: spawnCwd, doc, mode, targetCwd,
+    scheme: process.env.HANDOFF_URI_SCHEME, prompt: messages.prompt, cwd: spawnCwd, doc, mode, targetCwd, title: tabTitle,
     registryFailed: registryStatus === 'failed',
   })
   // ok means the handoff was captured; launched says whether a fresh session was actually opened.

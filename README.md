@@ -11,7 +11,7 @@ Native `/compact` summarizes detail away and keeps the same polluted session. `/
 ## How it works
 
 1. **Capture.** The agent authors nine fields (goal, specifics, state, next step, constraints, gotchas, open questions, keep-on-fail facts, verify commands) plus a short title. Secrets are redacted, then `tools/handoff.cjs` writes `.claude/handoff/HANDOFF.md` and an atomic single-shot marker next to it, in the TARGET project.
-2. **Spawn.** Default mode `same-window` fires the editor URI (`cursor://anthropic.claude-code/open`, scheme via `HANDOFF_URI_SCHEME`) immediately, no window focus, no delay, so it lands in whichever window the user is already talking to; the new session starts there and is told to `EnterWorktree` into the target before reading the handoff (or, when the current window's folder is not a git repository, to work on absolute paths under the target root instead). `window` opens the target in a new editor window and waits (poll, up to ~15 s on Windows) for it to become the foreground window before firing the URI. `terminal` opens a new terminal running `claude` in the target. `uri-target` keeps the old focus-then-URI behavior. `none` just prints an instruction. Every mode but `none` also writes an entry to the pending registry (`~/.claude/handoff/pending/`) so the resume hook can find the marker from whichever window the new session actually starts in.
+2. **Spawn.** Default mode `same-window` fires the editor URI (`cursor://anthropic.claude-code/open`, scheme via `HANDOFF_URI_SCHEME`) immediately, no window focus, no delay, so it lands in whichever window the user is already talking to; the new session starts there and is told to `EnterWorktree` into the target before reading the handoff (or, when the current window's folder is not a git repository, to work on absolute paths under the target root instead). `window` opens the target in a new editor window and waits (poll, up to ~15 s on Windows) for it to become the foreground window before firing the URI. `terminal` opens a new terminal running `claude` in the target. `herdr` (the default inside a [herdr](https://herdr.dev) terminal workspace, where `HERDR_ENV=1`) opens a new herdr tab in the target and starts `claude` there with the resume prompt. `uri-target` keeps the old focus-then-URI behavior. `none` just prints an instruction. Every mode but `none` also writes an entry to the pending registry (`~/.claude/handoff/pending/`) so the resume hook can find the marker from whichever window the new session actually starts in.
 3. **Resume.** The fresh session's `SessionStart` hook first checks for a local pending marker at its own cwd; if there isn't one, it looks itself up in the registry by cwd. Either way it injects a pointer to `HANDOFF.md`, auto-sends the first message and consumes the marker. Sessions without a marker or a matching registry entry are untouched and the hook never re-fires.
 4. **Wake.** The old session locates the fresh one by its name prefix, sends it the resume message, and tells you to close the old tab.
 5. **Name.** The new tab is titled `<topic> #<n>`, where `n` is a generation counter bumped from the previous handoff in that project.
@@ -71,12 +71,14 @@ Spawn modes (input JSON field `spawn`, overrides `HANDOFF_SPAWN`):
 | `same-window` | yes | caller window's folder (`callerCwd`) | Fires the URI immediately: no focus, no delay. Lands in whatever window the user is talking to. The first message tells the session to `EnterWorktree` into the target, then read the handoff. |
 | `window` | | target folder | Opens the target in a new editor window (`<editor> -n <targetCwd>`), waits for it to become the foreground window (poll, ~15 s timeout on Windows; fires the URI regardless and reports `focused: false` on timeout), then fires the URI. |
 | `terminal` | | target folder | Opens a new terminal running `claude` in the target (win32: `wt.exe -d <targetCwd> claude`, required to report a process id). |
+| `herdr` | yes, when `HERDR_ENV=1` | target folder | `herdr tab create --cwd <targetCwd> --label <title>`, then `herdr agent start <name> --kind claude --pane <pane> -- <resume prompt>`. If the folder is not trusted yet, `agent start` reports `agent_not_ready`; when the screen shows the trust dialog the glue answers it (`send-keys down enter`, "Yes, I trust this folder"). Launched only when `herdr agent get` reports the agent `working` (or `done`). Inside herdr, `terminal` and the `same-window` fallback also use a herdr tab first. |
 | `none` | | (nothing spawned) | Prints an instruction; no registry entry is written. |
 | `uri-target` | | last-focused editor window | Legacy behavior: focuses the target folder, waits, then fires the URI. `HANDOFF_SPAWN=auto` and `=uri` are old names that map onto this mode. |
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `HANDOFF_SPAWN` | `same-window` | see the modes table above |
+| `HANDOFF_SPAWN` | `same-window` (`herdr` when `HERDR_ENV=1`) | see the modes table above |
+| `HERDR_BIN_PATH` | `herdr` on `PATH` | herdr binary used by `herdr` mode (herdr sets it inside its panes) |
 | `HANDOFF_URI_SCHEME` | `cursor` | URI scheme used to open the extension (`vscode` for VS Code) |
 | `HANDOFF_EDITOR_EXE` | auto-detected | editor binary used to focus or open the project window |
 | `HANDOFF_TERMINAL_EXE` | auto-detected (win32: `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe` when it exists, else `wt.exe`) | terminal binary used by `terminal` mode |
@@ -96,16 +98,18 @@ The resume hook reads only the target's local marker and the pending registry, s
 
 ## Rotation actuator
 
-`tools/rotate.cjs` is a launcher: it reads JSON from stdin, writes JSON to stdout, and exits 0 only when `ok` is true. The exo-vault hook calls it through `EXOVAULT_ROTATE_LAUNCHER`, then `$CLAUDE_PLUGIN_ROOT/tools/rotate.cjs`, then the plugin cache at version 1.1.0 or newer. Rotation is opt-in on the exo-vault side with `EXOVAULT_ROTATION=1`; this plugin ships no `PreCompact` or `Stop` guard. Cursor refuses to launch when more than one Cursor window has the directory open.
+`tools/rotate.cjs` is a launcher: it reads JSON from stdin, writes JSON to stdout, and exits 0 only when `ok` is true. The exo-vault hook calls it through `EXOVAULT_ROTATE_LAUNCHER`, then `$CLAUDE_PLUGIN_ROOT/tools/rotate.cjs`, then the plugin cache at version 1.1.0 or newer. Rotation is opt-in on the exo-vault side with `EXOVAULT_ROTATION=1`; this plugin ships no `PreCompact` or `Stop` guard. Cursor refuses to launch when more than one Cursor window has the directory open. On Linux and macOS inside herdr (`HERDR_ENV=1`) the `cli` host opens a herdr tab (`mode: "herdr"`) instead of running `claude` in the foreground; without herdr there, the `cli` host still runs a foreground `claude` that has no terminal of its own, and the `cursor` host needs Windows.
 
 ## Limits
 
 - **A target folder Claude Code does not already trust stops `terminal` mode at the trust prompt.** The terminal opens in the right folder and `claude` starts, then waits for a person to accept the folder before any session, and therefore any hook, begins. Handing off inside a project you already work in is unaffected; a brand new worktree needs that one answer.
 
+- **`herdr` mode answers the folder-trust dialog for you.** A target folder Claude Code has not trusted yet (a brand new worktree, say) is accepted with "Yes, I trust this folder" so the handoff can start. Use `spawn: "none"` and start `claude` yourself when you want to answer that prompt in person.
+- **`herdr` mode was built from a hand-verified recipe (2026-09-28) and is covered by unit tests with a fake herdr; no end-to-end handoff through it has been recorded yet.**
 - **The old tab stays open.** No API closes the current session; you close it yourself after the handoff is ready.
 - **Two handoffs within about 20 seconds of each other can still land in the wrong tab.** Spawns are not queued, by design; if that happens, the next tab you open in the target project resumes the handoff from the pending marker regardless.
 - **Extension plugin loading is not officially documented.** Path A is expected to work in the extension as it does in the CLI, but only path B (copy into `~/.claude/skills` plus `install.cjs`) has been verified there.
-- The handoff doc is the agent's own prior notes. It never auto-runs the `verify` or `nextStep` commands; verify against the live repo before destructive actions.
+- The handoff doc is the agent's own prior notes. The glue never runs the `verify` or `nextStep` commands; the fresh session checks the doc against the live repo, continues from `nextStep`, and asks before a destructive or irreversible step.
 - The first message of the fresh session starts with the title stored in the pending marker (sanitized to 60 characters of letters, digits, spaces and `._#-`). The marker is written by your own agent, `.claude/handoff/` is added to the project's `.gitignore` so it never comes from a cloned repository, and registry entries under `HANDOFF_HOME` carry no secrets, only paths and the title.
 
 ## Development
@@ -129,6 +133,7 @@ tools/
   handoff.cjs                    entry: capture, redact, write, spawn, --respawn
   capture.cjs / handoff-format.cjs / marker.cjs / redact.cjs / memory.cjs
   paths.cjs / spawn-tab.cjs / session-title.cjs
+  herdr.cjs                      herdr tab + agent start (herdr mode and rotation inside herdr)
   registry.cjs                   pending registry (~/.claude/handoff/pending/)
   handoff-messages.cjs           resume message + URI prompt text, per spawn mode
   usage-threshold.cjs / usage-flag.cjs   auto-trigger logic (pure) + state
