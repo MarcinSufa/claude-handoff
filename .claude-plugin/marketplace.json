@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "handoff",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "description": "Hand off the current Claude Code session to a fresh-context session without losing state: a herdr tab on Linux, a new tab in the Cursor/VS Code extension, or a terminal for the CLI.",
       "author": {
         "name": "Marcin Sufa"
