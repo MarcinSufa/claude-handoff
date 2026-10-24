@@ -61,9 +61,18 @@ function focusOpener(cwd) {
   else execFileSync(editorExe(), [cwd], { env, stdio: 'ignore', timeout: 10000 })
   return true
 }
+// POSIX single-quoting: safe for any directory name, including quotes, spaces, $ and backticks.
+function quoteShell(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`
+}
+
+function quoteAppleScript(value) {
+  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
 function terminalExe(deps) {
   if (deps.env.HANDOFF_TERMINAL_EXE) return deps.env.HANDOFF_TERMINAL_EXE
-  const candidate = path.join(deps.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
+  const candidate = path.win32.join(deps.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
   return deps.existsSync(candidate) ? candidate : 'wt.exe'
 }
 
@@ -80,8 +89,9 @@ function terminalOpener(cwd, deps) {
     if (pidFrom(out) === null) throw new Error('terminal spawn produced no pid')
     return true
   }
-  if (d.platform === 'darwin') d.exec('osascript', ['-e', `tell app "Terminal" to do script "cd \\"${dir}\\" && claude"`], { env })
-  else d.exec('x-terminal-emulator', ['-e', `bash -lc 'cd "${dir}" && claude'`], { env })
+  const shellLine = `cd ${quoteShell(dir)} && claude`
+  if (d.platform === 'darwin') d.exec('osascript', ['-e', `tell app "Terminal" to do script ${quoteAppleScript(shellLine)}`], { env })
+  else d.exec('x-terminal-emulator', ['-e', `bash -lc ${quoteShell(shellLine)}`], { env })
   return true
 }
 function openWindowOpener(cwd) {
@@ -198,5 +208,5 @@ function spawn({ scheme, prompt, cwd, doc, mode, openers, focusDelayMs, registry
 const spawnTab = spawn // back-compat alias
 module.exports = {
   buildUri, childEnv, launchScript, pidFrom, spawn, spawnTab, resolveMode,
-  uriOpener, focusOpener, terminalOpener, openWindowOpener, waitForegroundOpener, foregroundScript, terminalExe,
+  uriOpener, focusOpener, terminalOpener, openWindowOpener, waitForegroundOpener, foregroundScript, terminalExe, quoteShell,
 }

@@ -59,7 +59,7 @@ function defaults() {
 function cliRotate(input, d) {
   const env = childEnv(d.env)
   const configured = d.env.HANDOFF_TERMINAL_EXE
-  const candidate = path.join(d.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
+  const candidate = path.win32.join(d.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
   const hasWt = Boolean(configured || d.existsSync(candidate))
   const exe = hasWt ? terminalExe(d) : 'claude'
   const argv = buildCliArgv({ exe: hasWt ? exe : 'wt.exe', cwd: input.cwd, runDir: input.run_dir, nonce: input.nonce, settingsPath: input.settings_path })

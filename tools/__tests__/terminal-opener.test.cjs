@@ -161,3 +161,24 @@ test('foregroundScript never matches an empty basename and compares case-insensi
     /IndexOf\(\$target,\s*\[StringComparison\]::OrdinalIgnoreCase\)|ToLowerInvariant\(\)/,
   )
 })
+
+// The linux line is run through a real sh with `claude` swapped for `pwd`, so the test checks what
+// the shell actually does with a hostile folder name instead of pinning one quoting style.
+test('linux terminal opener shell-quotes the directory', (t) => {
+  if (process.platform === 'win32') return t.skip('needs a POSIX sh')
+  const fs = require('node:fs'); const os = require('node:os')
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ho-quote-')))
+  const cwd = path.join(base, 'it\'s "odd" $HOME `x`')
+  fs.mkdirSync(cwd)
+  const calls = []
+  terminalOpener(cwd, { exec: (...args) => { calls.push(args); return '' }, platform: 'linux', env: {}, existsSync: () => false })
+  assert.equal(calls[0][0], 'x-terminal-emulator')
+  const line = calls[0][1][1].replace(/claude'$/, "pwd'")
+  assert.equal(realExecFileSync('sh', ['-c', line], { encoding: 'utf8' }).trim(), cwd)
+})
+
+test('darwin terminal opener escapes the directory for AppleScript and the shell', () => {
+  const calls = []
+  terminalOpener('/w/a"b\\c\'d', { exec: (...args) => { calls.push(args); return '' }, platform: 'darwin', env: {}, existsSync: () => false })
+  assert.equal(calls[0][1][1], `tell app "Terminal" to do script "cd '/w/a\\"b\\\\c'\\\\''d' && claude"`)
+})
