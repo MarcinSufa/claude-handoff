@@ -82,9 +82,8 @@ function cliRotate(input, d) {
   const argv = buildCliArgv({ exe: hasWt ? exe : 'wt.exe', cwd: input.cwd, runDir: input.run_dir, nonce: input.nonce, settingsPath: input.settings_path })
   const claudeArgs = argv.slice(6)
   if (d.platform !== 'win32' && herdrActive(d.env)) return herdrRotate(input, d, claudeArgs)
-  const output = d.platform === 'win32'
-    ? d.exec('powershell', ['-NoProfile', '-Command', hasWt ? launchScript(exe, argv.slice(1)) : launchScript('claude', claudeArgs, { workingDirectory: input.cwd })], { env })
-    : d.exec('claude', claudeArgs, { env })
+  if (d.platform !== 'win32') return { ok: false, mode: 'terminal', pid: null, error: 'halt:launch_failed no_terminal' }
+  const output = d.exec('powershell', ['-NoProfile', '-Command', hasWt ? launchScript(exe, argv.slice(1)) : launchScript('claude', claudeArgs, { workingDirectory: input.cwd })], { env })
   const pid = pidFrom(output)
   return pid === null
     ? { ok: false, mode: 'terminal', pid: null, error: 'halt:launch_failed pid_assertion' }

@@ -61,6 +61,7 @@ Same-window still works when the current window's folder is not a git repository
 ## Rotation actuator
 
 `tools/rotate.cjs` is a launcher that accepts JSON on stdin, returns JSON on stdout, and exits 0 only when `ok` is true. The exo-vault hook calls it through `EXOVAULT_ROTATE_LAUNCHER`, then `$CLAUDE_PLUGIN_ROOT/tools/rotate.cjs`, then the plugin cache at version 1.1.0 or newer. Rotation is opt-in on the exo-vault side with `EXOVAULT_ROTATION=1`; this plugin ships no `PreCompact` or `Stop` guard. Cursor refuses to launch when more than one Cursor window has the directory open.
+On Linux and macOS, CLI rotation without herdr returns `halt:launch_failed no_terminal`; run inside herdr or rotate by hand with `/handoff`.
 
 ## Notes
 - Path anchor is **cwd to nearest `.git`** (never `CLAUDE_PROJECT_DIR`), so the write-path and read-path can't diverge.
