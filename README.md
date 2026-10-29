@@ -98,7 +98,7 @@ The resume hook reads only the target's local marker and the pending registry, s
 
 ## Rotation actuator
 
-`tools/rotate.cjs` is a launcher: it reads JSON from stdin, writes JSON to stdout, and exits 0 only when `ok` is true. The exo-vault hook calls it through `EXOVAULT_ROTATE_LAUNCHER`, then `$CLAUDE_PLUGIN_ROOT/tools/rotate.cjs`, then the plugin cache at version 1.1.0 or newer. Rotation is opt-in on the exo-vault side with `EXOVAULT_ROTATION=1`; this plugin ships no `PreCompact` or `Stop` guard. Cursor refuses to launch when more than one Cursor window has the directory open. On Linux and macOS inside herdr (`HERDR_ENV=1`) the `cli` host opens a herdr tab (`mode: "herdr"`) instead of running `claude` in the foreground; without herdr there, the `cli` host still runs a foreground `claude` that has no terminal of its own, and the `cursor` host needs Windows.
+`tools/rotate.cjs` is a launcher: it reads JSON from stdin, writes JSON to stdout, and exits 0 only when `ok` is true. The exo-vault hook calls it through `EXOVAULT_ROTATE_LAUNCHER`, then `$CLAUDE_PLUGIN_ROOT/tools/rotate.cjs`, then the plugin cache at version 1.1.0 or newer. Rotation is opt-in on the exo-vault side with `EXOVAULT_ROTATION=1`; this plugin ships no `PreCompact` or `Stop` guard. Cursor refuses to launch when more than one Cursor window has the directory open. On Linux and macOS inside herdr (`HERDR_ENV=1`) the `cli` host opens a herdr tab (`mode: "herdr"`); without herdr, rotation returns `halt:launch_failed no_terminal`, so run inside herdr or rotate by hand with `/handoff`. The `cursor` host needs Windows.
 
 ## Limits
 

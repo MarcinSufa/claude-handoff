@@ -255,20 +255,3 @@ test('item 3: a cwd containing a single quote still round-trips to the exact ori
   const elements = decodeArgumentListElements(capturedArgs[2])
   assert.ok(elements.includes(cwd), `the single quote must round-trip through PowerShell escaping unchanged: ${JSON.stringify(elements)}`)
 })
-
-// Item 4 (review finding): on non-win32, the current code passes argv.slice(1) unconditionally,
-// which for the wt.exe-shaped argv ships "-w new -d <cwd> claude <prompt> ..." to the claude binary
-// itself. The fallback argv on linux/darwin must be the claude argv with the prompt FIRST.
-test('item 4: non-win32 (linux, darwin) CLI ships the claude argv with the prompt first, never the wt.exe argv', () => {
-  for (const platform of ['linux', 'darwin']) {
-    let capturedCmd, capturedArgs
-    rotate(
-      { host: 'cli', cwd: CLI_SAMPLE.cwd, run_dir: CLI_SAMPLE.run_dir, nonce: CLI_SAMPLE.nonce, settings_path: null },
-      { platform, env: {}, existsSync: () => false, exec: (cmd, args) => { capturedCmd = cmd; capturedArgs = args; return '25196' } },
-    )
-    assert.equal(capturedCmd, 'claude', `platform ${platform}`)
-    assert.equal(capturedArgs[0], `ctx-rotate:${CLI_SAMPLE.nonce}`, `platform ${platform}: the prompt must be the first arg to claude, not a wt.exe flag`)
-    assert.ok(!capturedArgs.includes('-w'), `platform ${platform}: the wt.exe -w flag must never reach claude`)
-    assert.ok(!capturedArgs.includes('-d'), `platform ${platform}: the wt.exe -d flag must never reach claude`)
-  }
-})

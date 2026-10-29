@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1
+
+- CLI rotation on Linux and macOS without herdr now fails with `halt:launch_failed no_terminal`; run inside herdr or rotate by hand with `/handoff`.
+
 ## 1.2.0
 
 - **herdr spawn mode.** Inside a herdr terminal workspace (`HERDR_ENV=1`) the default spawn opens a new herdr tab in the target, starts `claude` with the resume prompt, answers the folder-trust dialog when it is on screen, and counts as launched only once herdr reports the agent working. Inside herdr, `terminal` and the `same-window` fallback use a herdr tab first, and `tools/rotate.cjs` opens a herdr tab for the `cli` host instead of a foreground `claude` with no terminal.
